@@ -7,7 +7,6 @@ Eine Windows-Explorer-Shell-Erweiterung zum Sammeln von Dateien in einen
 virtuellen "Korb" und anschließendem Kopieren oder Verschieben in ein
 Zielverzeichnis.
 
-
 --------------------------------------------------------------------------------
 INHALT DIESES PAKETS
 --------------------------------------------------------------------------------
@@ -17,7 +16,6 @@ INHALT DIESES PAKETS
   CB-CMT.exe            CopyBasket Context Menu Tool (Aktivieren / Deaktivieren)
   Lies.mich.txt         Diese Datei
   README.txt            Englische Dokumentation
-
 
 --------------------------------------------------------------------------------
 INSTALLATION
@@ -39,7 +37,6 @@ INSTALLATION
 4. Rechtsklick auf eine Datei, einen Ordner oder den Ordner-Hintergrund im
    Explorer — das "CopyBasket"-Untermenü sollte jetzt erscheinen.
 
-
 --------------------------------------------------------------------------------
 DEINSTALLATION
 --------------------------------------------------------------------------------
@@ -51,7 +48,6 @@ Korb-Datei) zu entfernen: vor dem Bestätigen der Deaktivierung die Checkbox
 "Delete User Settings" aktivieren.
 
 Danach kann der Ordner mit DLL und CB-CMT.exe einfach gelöscht werden.
-
 
 --------------------------------------------------------------------------------
 FUNKTIONEN
@@ -69,7 +65,6 @@ FUNKTIONEN
     Hintergrund-Thread)
   * Vorfalls-Log mit TaskDialog-Benachrichtigung bei Abbruch / Teilfehlern
   * Deutsche und englische Oberfläche, umschaltbar über Einstellungen
-
 
 --------------------------------------------------------------------------------
 VERSIONSHISTORIE
@@ -141,7 +136,6 @@ KONTAKT & LINKS
 
   Bug-Tracker:
       https://github.com/HJS-cpu/CopyBasket/issues
-
 
 --------------------------------------------------------------------------------
 LIZENZ

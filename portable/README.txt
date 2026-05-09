@@ -6,7 +6,6 @@
 A Windows Explorer shell extension that lets you collect files into a virtual
 "basket" and then copy or move them all at once to a target directory.
 
-
 --------------------------------------------------------------------------------
 CONTENTS OF THIS PACKAGE
 --------------------------------------------------------------------------------
@@ -16,7 +15,6 @@ CONTENTS OF THIS PACKAGE
   CB-CMT.exe            CopyBasket Context Menu Tool (activate / deactivate)
   README.txt            This file
   Lies.mich.txt         German documentation
-
 
 --------------------------------------------------------------------------------
 INSTALLATION
@@ -38,7 +36,6 @@ INSTALLATION
 4. Right-click any file, folder, or folder background in Explorer — the
    "CopyBasket" submenu should now appear.
 
-
 --------------------------------------------------------------------------------
 UNINSTALLATION
 --------------------------------------------------------------------------------
@@ -49,7 +46,6 @@ To also remove user settings (language preference, dialog size, basket file):
 enable the "Delete User Settings" checkbox before confirming deactivation.
 
 Afterwards the folder containing the DLL and CB-CMT.exe can simply be deleted.
-
 
 --------------------------------------------------------------------------------
 FEATURES
@@ -64,7 +60,6 @@ FEATURES
   * Non-blocking async file operations (IFileOperation on a background thread)
   * Incident log with TaskDialog notification for aborted / partial operations
   * German and English UI, switchable via settings
-
 
 --------------------------------------------------------------------------------
 CHANGELOG
@@ -117,7 +112,6 @@ v1.0.0
   - Non-blocking async file operations
   - German and English UI
 
-
 --------------------------------------------------------------------------------
 CONTACT & LINKS
 --------------------------------------------------------------------------------
@@ -132,7 +126,6 @@ CONTACT & LINKS
 
   Issue tracker:
       https://github.com/HJS-cpu/CopyBasket/issues
-
 
 --------------------------------------------------------------------------------
 LICENSE
