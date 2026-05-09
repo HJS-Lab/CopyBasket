@@ -309,7 +309,7 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
     case CMD_COPY_HERE: {
         std::vector<std::wstring> files = BasketStore::ReadBasket();
         if (!files.empty() && m_szFolder[0] != L'\0') {
-            FileOps::CopyFilesToFolderAsync(files, m_szFolder, true);
+            FileOps::CopyFilesToFolderAsync(files, m_szFolder, true, lpcmi->hwnd);
         }
         break;
     }
@@ -321,7 +321,7 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
         if (!files.empty()) {
             std::wstring folder;
             if (FileOps::BrowseForFolder(lpcmi->hwnd, folder)) {
-                FileOps::CopyFilesToFolderAsync(files, folder, fromBasket);
+                FileOps::CopyFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
             }
         }
         break;
@@ -330,7 +330,7 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
     case CMD_MOVE_HERE: {
         std::vector<std::wstring> files = BasketStore::ReadBasket();
         if (!files.empty() && m_szFolder[0] != L'\0') {
-            FileOps::MoveFilesToFolderAsync(files, m_szFolder, true);
+            FileOps::MoveFilesToFolderAsync(files, m_szFolder, true, lpcmi->hwnd);
         }
         break;
     }
@@ -342,7 +342,7 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
         if (!files.empty()) {
             std::wstring folder;
             if (FileOps::BrowseForFolder(lpcmi->hwnd, folder)) {
-                FileOps::MoveFilesToFolderAsync(files, folder, fromBasket);
+                FileOps::MoveFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
             }
         }
         break;

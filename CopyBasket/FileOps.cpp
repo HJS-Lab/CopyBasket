@@ -224,7 +224,8 @@ static std::wstring WriteOperationLog(UINT wFunc, const std::wstring& destFolder
 // ---------------------------------------------------------------------------
 // ShowAbortDialog — TaskDialog with "Open log" button
 // ---------------------------------------------------------------------------
-static void ShowAbortDialog(const std::wstring& logPath, int notProcessedCount, int totalCount) {
+static void ShowAbortDialog(HWND hwndOwner, const std::wstring& logPath,
+                             int notProcessedCount, int totalCount) {
     const StringTable& S = GetStrings();
 
     WCHAR content[256];
@@ -235,8 +236,13 @@ static void ShowAbortDialog(const std::wstring& logPath, int notProcessedCount, 
         { 1002, S.AbortBtnClose }
     };
 
+    // Owner must still be valid; if not, fall back to foreground window so
+    // the dialog cannot disappear behind Explorer.
+    HWND hwndParent = (hwndOwner && IsWindow(hwndOwner)) ? hwndOwner : GetForegroundWindow();
+
     TASKDIALOGCONFIG tdc = { sizeof(tdc) };
-    tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+    tdc.hwndParent = hwndParent;
+    tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
     tdc.pszWindowTitle = L"CopyBasket";
     tdc.pszMainIcon = TD_WARNING_ICON;
     tdc.pszMainInstruction = S.AbortTitle;
@@ -256,13 +262,19 @@ static void ShowAbortDialog(const std::wstring& logPath, int notProcessedCount, 
 // ---------------------------------------------------------------------------
 // ExecuteFileOpCOM — IFileOperation-based file copy/move
 // ---------------------------------------------------------------------------
-static BOOL ExecuteFileOpCOM(UINT wFunc, const std::vector<std::wstring>& files,
+static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::wstring>& files,
                              const std::wstring& destFolder, bool removeFromBasket) {
     if (files.empty() || destFolder.empty()) return FALSE;
 
     IFileOperation* pfo = NULL;
     HRESULT hr = CoCreateInstance(CLSID_FileOperation, NULL, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
     if (FAILED(hr)) return FALSE;
+
+    // Anchor any conflict/UAC dialogs to a real window so they cannot
+    // disappear behind Explorer (especially relevant for cross-volume MOVE).
+    if (hwndOwner && IsWindow(hwndOwner)) {
+        pfo->SetOwnerWindow(hwndOwner);
+    }
 
     pfo->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR);
 
@@ -323,7 +335,7 @@ static BOOL ExecuteFileOpCOM(UINT wFunc, const std::vector<std::wstring>& files,
                                                   actuallySucceeded, notProcessed);
         if (!logPath.empty()) {
             int total = (int)(actuallySucceeded.size() + notProcessed.size());
-            ShowAbortDialog(logPath, (int)notProcessed.size(), total);
+            ShowAbortDialog(hwndOwner, logPath, (int)notProcessed.size(), total);
         }
     }
 
@@ -390,6 +402,7 @@ BOOL BrowseForFolder(HWND hwnd, std::wstring& folderOut) {
 // --- Async file operations (background thread) ---
 
 struct FileOpParams {
+    HWND hwndOwner;
     UINT wFunc;
     std::vector<std::wstring> files;
     std::wstring destFolder;
@@ -402,7 +415,8 @@ static unsigned __stdcall FileOpThreadProc(void* pArg) {
     // Initialize COM for this thread (needed for shell operations)
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
-    ExecuteFileOpCOM(params->wFunc, params->files, params->destFolder, params->removeFromBasket);
+    ExecuteFileOpCOM(params->hwndOwner, params->wFunc, params->files,
+                     params->destFolder, params->removeFromBasket);
 
     CoUninitialize();
     delete params;
@@ -410,11 +424,12 @@ static unsigned __stdcall FileOpThreadProc(void* pArg) {
     return 0;
 }
 
-static void LaunchFileOp(UINT wFunc, const std::vector<std::wstring>& files,
+static void LaunchFileOp(HWND hwndOwner, UINT wFunc, const std::vector<std::wstring>& files,
                          const std::wstring& destFolder, bool removeFromBasket) {
     if (files.empty() || destFolder.empty()) return;
 
     FileOpParams* params = new FileOpParams();
+    params->hwndOwner = hwndOwner;
     params->wFunc = wFunc;
     params->files = files;
     params->destFolder = destFolder;
@@ -433,13 +448,15 @@ static void LaunchFileOp(UINT wFunc, const std::vector<std::wstring>& files,
 }
 
 void CopyFilesToFolderAsync(const std::vector<std::wstring>& files,
-                            const std::wstring& destFolder, bool removeFromBasket) {
-    LaunchFileOp(FO_COPY, files, destFolder, removeFromBasket);
+                            const std::wstring& destFolder, bool removeFromBasket,
+                            HWND hwndOwner) {
+    LaunchFileOp(hwndOwner, FO_COPY, files, destFolder, removeFromBasket);
 }
 
 void MoveFilesToFolderAsync(const std::vector<std::wstring>& files,
-                            const std::wstring& destFolder, bool removeFromBasket) {
-    LaunchFileOp(FO_MOVE, files, destFolder, removeFromBasket);
+                            const std::wstring& destFolder, bool removeFromBasket,
+                            HWND hwndOwner) {
+    LaunchFileOp(hwndOwner, FO_MOVE, files, destFolder, removeFromBasket);
 }
 
 } // namespace FileOps

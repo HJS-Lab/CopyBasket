@@ -30,7 +30,7 @@ regsvr32 /u x64\Release\CopyBasket.dll
 - **CLSID:** {F2D8A4E6-3B7C-4D1E-9F5A-8C6E2A4B0D12} (GUID.h)
 - **Korb-Speicher:** `%APPDATA%\CopyBasket\basket.txt` (UTF-16LE mit BOM)
 - **Incident-Log:** `%APPDATA%\CopyBasket\operations.log` (UTF-16LE mit BOM, **ueberschrieben** pro Incident)
-- **Dateioperationen:** IFileOperation + CFileOperationProgressSink (nicht-blockierend via Hintergrund-Thread, Korb-Entfernung gesammelt in FinishOperations). Bei Abbruch/Teilfehler wird via Pre-Scan/Post-Check ein Log geschrieben und TaskDialog angezeigt
+- **Dateioperationen:** IFileOperation + CFileOperationProgressSink (nicht-blockierend via Hintergrund-Thread, Korb-Entfernung gesammelt in FinishOperations). Bei Abbruch/Teilfehler wird via Pre-Scan/Post-Check ein Log geschrieben und TaskDialog angezeigt. `IFileOperation::SetOwnerWindow(lpcmi->hwnd)` und `TASKDIALOGCONFIG::hwndParent` werden gesetzt, damit Konflikt-/Abort-Dialoge nicht hinter dem Explorer verschwinden (relevant insbesondere fuer Cross-Volume-MOVE)
 - **Thread-Sicherheit:** `g_cRef` als `volatile LONG` mit `InterlockedIncrement/Decrement`
 - **Datei-Erkennung:** Primaer CF_HDROP, Fallback via `SHCreateShellItemArrayFromDataObject` (fuer Navigationsbereich, virtuelle Ordner etc.) mit `SFGAO_FOLDER`-Pruefung fuer korrekte Ordner-Ziel-Erkennung
 
@@ -41,7 +41,7 @@ regsvr32 /u x64\Release\CopyBasket.dll
 | CopyBasket.cpp | DllMain, COM Boilerplate, DllRegisterServer/DllUnregisterServer |
 | ShellExt.cpp | IShellExtInit::Initialize, IContextMenu (QueryContextMenu, InvokeCommand, GetCommandString) |
 | BasketStore.h/.cpp | Korb-Datei lesen/schreiben/leeren, Duplikat-Pruefung. `GetBasketDirPath()` public (fuer Log-Pfad), `GetBasketFilePath()` intern/static |
-| FileOps.h/.cpp | IFileOperation + CFileOperationProgressSink (async, Korb-Update gesammelt in FinishOperations), BrowseForFolder (IFileDialog, mit Re-Entrance-Guard), Incident-Log via Pre-Scan/Post-Check, TaskDialog mit "Log oeffnen" |
+| FileOps.h/.cpp | IFileOperation + CFileOperationProgressSink (async, Korb-Update gesammelt in FinishOperations), BrowseForFolder (IFileDialog, mit Re-Entrance-Guard), Incident-Log via Pre-Scan/Post-Check, TaskDialog mit "Log oeffnen". `HWND hwndOwner` wird via `FileOpParams` durch den Hintergrund-Thread gereicht und an `IFileOperation::SetOwnerWindow` + `TaskDialogIndirect` weitergegeben |
 | BasketDialog.h/.cpp | ListView-Dialog mit TreeView-Detail-Panel, Splitter, System-Icons, Typ-Spalte, Entfernen-Funktion, Drag&Drop-Ziel (WM_DROPFILES). Shared `RefreshFromDisk(DlgData*)`-Helper fuer `ReadBasket + PopulateListView + UpdateStatusBar` |
 | Strings.h/.cpp | i18n String-Tabellen (DE/EN), LoadLanguageSetting(), SaveLanguageSetting() |
 | SettingsDialog.h/.cpp | Einstellungen-Dialog mit Tab Control (Sprache / \u00DCber mit Website-Link) |
@@ -53,6 +53,8 @@ regsvr32 /u x64\Release\CopyBasket.dll
 | CopyBasket.rc | Versioninfo-Resource (FILEVERSION/PRODUCTVERSION + FileVersion/ProductVersion-Strings alle aus `Version.h`-Macros abgeleitet) |
 | res/basket.ico | Menu-Icon Resource |
 | installer/CopyBasket.nsi | NSIS Installer-Skript (regsvr32, x64/x86 Erkennung) |
+| portable/README.txt | Englische Portable-Dokumentation (Installation, Features, Changelog, Kontakt) — wird in `CopyBasket_vX.Y.Z.zip` gepackt |
+| portable/Lies.mich.txt | Deutsche Portable-Dokumentation (synchron zur englischen Fassung) |
 | .github/workflows/release.yml | GitHub Actions Build & Release Workflow |
 
 ## Registry-Punkte (3 Registrierungen)
@@ -147,6 +149,9 @@ Bei Abbruch oder fehlgeschlagenen Dateioperationen (insbesondere beim Verschiebe
   - **Operation:** `IFileOperation::PerformOperations()` wie gehabt
   - **Post-Check:** Nach `GetAnyOperationsAborted()` wird jede erwartete Datei via `GetFileAttributesW` geprueft — fuer MOVE gilt eine Datei als erfolgreich, wenn Quelle weg und Ziel existiert; fuer COPY wenn Ziel existiert
 - **Trigger:** `fAborted || !notProcessed.empty()`
+- **Owner-Window:** `lpcmi->hwnd` aus `InvokeCommand` wird via `FileOpParams::hwndOwner` durch den Hintergrund-Thread bis in `ExecuteFileOpCOM` gereicht. Dort:
+  - `IFileOperation::SetOwnerWindow(hwndOwner)` — verankert Konflikt-/UAC-/Replace-Skip-Dialoge von Windows am Explorer-Fenster, damit sie nicht hinter Fenstern verschwinden (insb. bei Cross-Volume-MOVE mit Konflikten)
+  - `TASKDIALOGCONFIG::hwndParent = hwndOwner` (mit `IsWindow()`-Check, Fallback auf `GetForegroundWindow()` falls Hwnd zwischenzeitlich invalid) plus `TDF_POSITION_RELATIVE_TO_WINDOW` — Abort-Dialog erscheint immer im Vordergrund relativ zum Explorer
 - **Log-Datei:** `%APPDATA%\CopyBasket\operations.log` (UTF-16LE mit BOM, `CREATE_ALWAYS` → wird pro Incident ueberschrieben, keine History)
   - Inhalt: Zeitstempel, Operationstyp (KOPIEREN/VERSCHIEBEN), Zielordner, Liste "Erfolgreich:" + "Fehlgeschlagen:" + Status (ABGEBROCHEN falls zutreffend)
   - i18n Log-Strings via `StringTable`: `LogOpCopy`, `LogOpMove`, `LogTarget`, `LogAborted`, `LogSucceeded`, `LogFailed`
@@ -195,8 +200,16 @@ Bei Abbruch oder fehlgeschlagenen Dateioperationen (insbesondere beim Verschiebe
 
 ### Release-Assets (GitHub)
 
-- `CopyBasket_vX.Y.Z.zip` — Portable (DLLs + CB-CMT.exe fuer manuelle Registrierung)
+- `CopyBasket_vX.Y.Z.zip` — Portable (DLLs + CB-CMT.exe fuer manuelle Registrierung, inkl. `README.txt` und `Lies.mich.txt`)
 - `CopyBasket-X.Y.Z-setup.exe` — NSIS Installer (regsvr32 automatisch, kein CB-CMT.exe)
+
+### Portable-Dokumentation
+
+- **Quellordner:** `portable\README.txt` (Englisch) + `portable\Lies.mich.txt` (Deutsch)
+- **Inhalt:** Installation via CB-CMT.exe, Feature-Overview, komplette Changelog-History, Kontakt-/Link-Block, Lizenz
+- **Einbindung:** `.github\workflows\release.yml` kopiert beide Dateien im Schritt "Prepare release assets" nach `_release\` und packt sie in die Portable-ZIP
+- **Versions-Header:** kein Versionsstring im Header (steht schon im ZIP-Dateinamen) — pro Release muss nur der Changelog-Abschnitt nachgefuehrt werden, kein Header-Drift
+- **Keine Umlaut-Escapes:** Die `.txt`-Dateien nutzen echte UTF-8-Umlaute (kein `\u00XX`-Escaping wie im C++-Code)
 
 ### CB-CMT.exe (CopyBasket Context Menu Tool)
 
