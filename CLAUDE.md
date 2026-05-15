@@ -39,10 +39,10 @@ regsvr32 /u x64\Release\CopyBasket.dll
 | Datei | Inhalt |
 |-------|--------|
 | CopyBasket.cpp | DllMain, COM Boilerplate, DllRegisterServer/DllUnregisterServer |
-| ShellExt.cpp | IShellExtInit::Initialize, IContextMenu (QueryContextMenu, InvokeCommand, GetCommandString) |
-| BasketStore.h/.cpp | Korb-Datei lesen/schreiben/leeren, Duplikat-Pruefung. `GetBasketDirPath()` public (fuer Log-Pfad), `GetBasketFilePath()` intern/static |
-| FileOps.h/.cpp | IFileOperation + CFileOperationProgressSink (async, Korb-Update gesammelt in FinishOperations), BrowseForFolder (IFileDialog, mit Re-Entrance-Guard), Incident-Log via Pre-Scan/Post-Check, TaskDialog mit "Log oeffnen". `HWND hwndOwner` wird via `FileOpParams` durch den Hintergrund-Thread gereicht und an `IFileOperation::SetOwnerWindow` + `TaskDialogIndirect` weitergegeben |
-| BasketDialog.h/.cpp | ListView-Dialog mit TreeView-Detail-Panel, Splitter, System-Icons, Typ-Spalte, Entfernen-Funktion, Drag&Drop-Ziel (WM_DROPFILES). Shared `RefreshFromDisk(DlgData*)`-Helper fuer `ReadBasket + PopulateListView + UpdateStatusBar` |
+| ShellExt.cpp | IShellExtInit::Initialize, IContextMenu (QueryContextMenu, InvokeCommand, GetCommandString). Die vier File-Op-Commands (CMD_COPY_HERE/CMD_COPY_TO/CMD_MOVE_HERE/CMD_MOVE_TO) sind in InvokeCommand Einzeiler — gemeinsame Logik in `CShellExt::HandleFileOp(lpcmi, isCopy, toPicker)` |
+| BasketStore.h/.cpp | Korb-Datei lesen/schreiben/leeren, Duplikat-Pruefung. `GetBasketDirPath()` public (fuer Log-Pfad), `GetBasketFilePath()` intern/static. **Single Source of Truth** fuer Registry-Pfad (`extern const wchar_t* const REG_KEY = L"Software\\CopyBasket"`) und Pfad-Tail-Extraktion (`ExtractFileName(path)` via `find_last_of(L"\\/")`) — beide werden von BasketDialog, SettingsDialog, Strings und FileOps verwendet, nicht lokal duplizieren |
+| FileOps.h/.cpp | IFileOperation + CFileOperationProgressSink (async, Korb-Update gesammelt in FinishOperations), BrowseForFolder (IFileDialog, mit Re-Entrance-Guard), Incident-Log via Pre-Scan/Post-Check, TaskDialog mit "Log oeffnen". `HWND hwndOwner` wird via `FileOpParams` durch den Hintergrund-Thread gereicht und an `IFileOperation::SetOwnerWindow` + `TaskDialogIndirect` weitergegeben. `ExecuteFileOpCOM` ist in drei Phasen organisiert: (1) COM-Setup + `SchedulePerFileOps`, (2) Pre-Scan + `PerformOperations`, (3) Filesystem-Post-Check via `ClassifyOutcome` + ggf. Incident-Log. `Microsoft::WRL::ComPtr` (`<wrl/client.h>`) verwaltet `IFileOperation`/`IShellItem`; nur der Sink bleibt manuell wegen `Unadvise`-vor-`Release`-Anforderung |
+| BasketDialog.h/.cpp | ListView-Dialog mit TreeView-Detail-Panel, Splitter, System-Icons, Typ-Spalte, Entfernen-Funktion, Drag&Drop-Ziel (WM_DROPFILES). Shared `RefreshFromDisk(DlgData*)`-Helper fuer `ReadBasket + PopulateListView + UpdateStatusBar`. `DlgWndProc` ist reiner Dispatcher; per-Message-Handler in `OnCreate`/`OnDropFiles`/`OnCommand`/`OnNotify` (triviale Cases wie `WM_SIZE`/`WM_DESTROY` bleiben inline). Layout-Math zentralisiert in `ComputeLayoutMetrics()` (Single Source of Truth fuer Splitter + LayoutControls). `GetSysIconIndex(path, attrHint)` mit Fallback auf `SHGFI_USEFILEATTRIBUTES` fuer nicht mehr existierende Dateien |
 | Strings.h/.cpp | i18n String-Tabellen (DE/EN), LoadLanguageSetting(), SaveLanguageSetting() |
 | SettingsDialog.h/.cpp | Einstellungen-Dialog mit Tab Control (Sprache / \u00DCber mit Website-Link) |
 | Version.h | Zentrale Versionskonstanten (COPYBASKET_VERSION_MAJOR/MINOR/PATCH/BUILD). `COPYBASKET_VERSION_STR` (wide) und `COPYBASKET_VERSION_STR_A` (narrow) werden via Preprocessor-Stringification aus den numerischen Macros abgeleitet — einzige Quelle der Wahrheit |
@@ -226,9 +226,15 @@ Bei Abbruch oder fehlgeschlagenen Dateioperationen (insbesondere beim Verschiebe
 ## Konventionen
 
 - Kein Precompiled Header
-- ASCII-sichere Bezeichner im Code, Umlaute via Unicode-Escapes (z.B. `\u00FC` fuer ue)
+- ASCII-sichere Bezeichner im Code, Umlaute via Unicode-Escapes (z.B. `\u00FC` fuer ue) \u2014 gilt insbesondere fuer `Strings.cpp`. Die portable docs (`portable/*.txt`) sind UTF-8 mit echten Umlauten
 - `g_cRef` immer mit `InterlockedIncrement`/`InterlockedDecrement` zugreifen (Data-Race-Schutz wegen Hintergrund-Threads)
-- Gemeinsame Logik in Helper-Funktionen extrahieren (z.B. `ExecuteFileOpCOM` fuer IFileOperation)
+- Gemeinsame Logik in Helper-Funktionen extrahieren (z.B. `ExecuteFileOpCOM` fuer IFileOperation, `CShellExt::HandleFileOp` fuer die vier COPY/MOVE-Commands, `ComputeLayoutMetrics` fuer Splitter+LayoutControls)
+- **Single Source of Truth \u2014 nicht hartkodieren:**
+  - Registry-Pfad: `BasketStore::REG_KEY` (deklariert in `BasketStore.h`, definiert in `BasketStore.cpp`)
+  - Pfad-Tail-Extraktion: `BasketStore::ExtractFileName(path)` \u2014 kein `rfind(L'\\')`/`find_last_of` lokal duplizieren
+  - Layout-Konstanten: `BTN_W`/`BTN_H`/`MARGIN` als file-scope `static const int` in `BasketDialog.cpp` (Muster wie `MIN_WIDTH`/`SPLITTER_H`/`MIN_PANE_H`)
+  - i18n-Strings via `GetStrings().Member` aus `Strings.h/.cpp` (auch fuer Sprachnamen im Combo und Copyright-Text)
+- COM-Pointer in `ExecuteFileOpCOM` via `Microsoft::WRL::ComPtr` (`<wrl/client.h>`) wo moeglich; Sink bleibt manuell weil `Unadvise` vor `Release` laufen muss
 - Referenzprojekt: `C:\Users\HJS\Claude.ai\wscitecm\` (SciTE Context Menu Extension)
 
 ## GitHub
