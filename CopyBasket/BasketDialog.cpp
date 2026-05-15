@@ -25,6 +25,9 @@ static const int MIN_WIDTH = 450;
 static const int MIN_HEIGHT = 400;
 static const int SPLITTER_H = 6;
 static const int MIN_PANE_H = 60;
+static const int BTN_W = 100;
+static const int BTN_H = 28;
+static const int MARGIN = 8;
 
 using BasketStore::REG_KEY;
 
@@ -349,9 +352,6 @@ static void LayoutControls(HWND hwnd, DlgData* dd) {
     GetClientRect(hwnd, &rc);
     int w = rc.right;
     int h = rc.bottom;
-    int btnW = 100;
-    int btnH = 28;
-    int margin = 8;
 
     // Status bar auto-positions itself at the bottom
     int sbHeight = 0;
@@ -363,7 +363,7 @@ static void LayoutControls(HWND hwnd, DlgData* dd) {
     }
 
     int contentH = h - sbHeight;
-    int availH = contentH - btnH - 3 * margin - SPLITTER_H;  // list + tree + gap before buttons
+    int availH = contentH - BTN_H - 3 * MARGIN - SPLITTER_H;  // list + tree + gap before buttons
     if (availH < 2 * MIN_PANE_H) availH = 2 * MIN_PANE_H;
 
     int listH = availH * dd->splitRatioPct / 100;
@@ -374,19 +374,19 @@ static void LayoutControls(HWND hwnd, DlgData* dd) {
     HDWP hdwp = BeginDeferWindowPos(5);
     if (hdwp) {
         hdwp = DeferWindowPos(hdwp, dd->hList, NULL,
-            margin, margin, w - 2 * margin, listH,
+            MARGIN, MARGIN, w - 2 * MARGIN, listH,
             SWP_NOZORDER | SWP_NOACTIVATE);
         hdwp = DeferWindowPos(hdwp, dd->hSplitter, NULL,
-            margin, margin + listH, w - 2 * margin, SPLITTER_H,
+            MARGIN, MARGIN + listH, w - 2 * MARGIN, SPLITTER_H,
             SWP_NOZORDER | SWP_NOACTIVATE);
         hdwp = DeferWindowPos(hdwp, dd->hTree, NULL,
-            margin, margin + listH + SPLITTER_H, w - 2 * margin, treeH,
+            MARGIN, MARGIN + listH + SPLITTER_H, w - 2 * MARGIN, treeH,
             SWP_NOZORDER | SWP_NOACTIVATE);
         hdwp = DeferWindowPos(hdwp, dd->hBtnRemove, NULL,
-            w - 2 * btnW - 2 * margin, contentH - btnH - margin, btnW, btnH,
+            w - 2 * BTN_W - 2 * MARGIN, contentH - BTN_H - MARGIN, BTN_W, BTN_H,
             SWP_NOZORDER | SWP_NOACTIVATE);
         hdwp = DeferWindowPos(hdwp, dd->hBtnClose, NULL,
-            w - btnW - margin, contentH - btnH - margin, btnW, btnH,
+            w - BTN_W - MARGIN, contentH - BTN_H - MARGIN, BTN_W, BTN_H,
             SWP_NOZORDER | SWP_NOACTIVATE);
         EndDeferWindowPos(hdwp);
     }

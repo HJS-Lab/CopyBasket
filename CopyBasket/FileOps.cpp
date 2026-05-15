@@ -14,6 +14,11 @@ extern volatile LONG g_cRef;
 
 namespace FileOps {
 
+// Abort-dialog button IDs (TaskDialog) and BrowseForFolder re-entrance throttle.
+static const int IDBTN_OPEN_LOG = 1001;
+static const int IDBTN_CLOSE = 1002;
+static const DWORD BROWSE_THROTTLE_MS = 500;
+
 // ---------------------------------------------------------------------------
 // CFileOperationProgressSink — removes files from basket after each success
 // ---------------------------------------------------------------------------
@@ -231,8 +236,8 @@ static void ShowAbortDialog(HWND hwndOwner, const std::wstring& logPath,
     swprintf_s(content, _countof(content), S.AbortMsgFmt, notProcessedCount, totalCount);
 
     TASKDIALOG_BUTTON buttons[] = {
-        { 1001, S.AbortBtnOpenLog },
-        { 1002, S.AbortBtnClose }
+        { IDBTN_OPEN_LOG, S.AbortBtnOpenLog },
+        { IDBTN_CLOSE,    S.AbortBtnClose }
     };
 
     // Owner must still be valid; if not, fall back to foreground window so
@@ -248,12 +253,12 @@ static void ShowAbortDialog(HWND hwndOwner, const std::wstring& logPath,
     tdc.pszContent = content;
     tdc.pButtons = buttons;
     tdc.cButtons = 2;
-    tdc.nDefaultButton = 1002;
+    tdc.nDefaultButton = IDBTN_CLOSE;
 
     int nButton = 0;
     TaskDialogIndirect(&tdc, &nButton, NULL, NULL);
 
-    if (nButton == 1001) {
+    if (nButton == IDBTN_OPEN_LOG) {
         ShellExecuteW(NULL, L"open", logPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
     }
 }
@@ -357,7 +362,7 @@ BOOL BrowseForFolder(HWND hwnd, std::wstring& folderOut) {
         return FALSE;
 
     DWORD now = GetTickCount();
-    if ((now - s_lastCloseTick) < 500) {
+    if ((now - s_lastCloseTick) < BROWSE_THROTTLE_MS) {
         InterlockedExchange(&s_dialogOpen, 0);
         return FALSE;
     }
