@@ -216,11 +216,7 @@ static void PopulateListView(HWND hList, const std::vector<std::wstring>& files)
         const std::wstring& path = files[i];
 
         // Extract filename (last path component)
-        std::wstring name = path;
-        size_t pos = path.rfind(L'\\');
-        if (pos != std::wstring::npos) {
-            name = path.substr(pos + 1);
-        }
+        std::wstring name = BasketStore::ExtractFileName(path);
 
         // Determine type (file or folder)
         DWORD attr = GetFileAttributesW(path.c_str());
