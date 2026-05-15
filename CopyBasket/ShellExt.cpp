@@ -12,6 +12,8 @@
 #include "resource.h"
 #include <shellapi.h>
 
+using Microsoft::WRL::ComPtr;
+
 extern volatile LONG g_cRef;
 extern HINSTANCE g_hModule;
 
@@ -20,7 +22,6 @@ extern HINSTANCE g_hModule;
 //---------------------------------------------------------------------------
 CShellExt::CShellExt() {
     m_cRef = 0L;
-    m_pDataObj = NULL;
     m_cbFiles = 0;
     m_bIsBackground = TRUE;
     m_szFolder[0] = L'\0';
@@ -44,10 +45,7 @@ CShellExt::CShellExt() {
 }
 
 CShellExt::~CShellExt() {
-    if (m_pDataObj) {
-        m_pDataObj->Release();
-        m_pDataObj = NULL;
-    }
+    // m_pDataObj is released by ComPtr destructor
     if (m_stgMedium.hGlobal) {
         ReleaseStgMedium(&m_stgMedium);
     }
@@ -82,6 +80,23 @@ STDMETHODIMP_(ULONG) CShellExt::Release() {
 }
 
 //---------------------------------------------------------------------------
+// ResolveClickTarget — set m_szFolder from the first clicked item.
+// Default: parent directory. Special case: a single-folder click uses the
+// folder itself so "hierher" operations target inside it. Used by both the
+// HDROP and the IShellItemArray code paths in Initialize.
+//---------------------------------------------------------------------------
+void CShellExt::ResolveClickTarget(LPCWSTR firstPath, bool isFolder, bool isSingleItem) {
+    if (m_szFolder[0] == L'\0') {
+        lstrcpyW(m_szFolder, firstPath);
+        WCHAR* pSlash = wcsrchr(m_szFolder, L'\\');
+        if (pSlash) *pSlash = L'\0';
+    }
+    if (isSingleItem && isFolder) {
+        lstrcpyW(m_szFolder, firstPath);
+    }
+}
+
+//---------------------------------------------------------------------------
 // IShellExtInit::Initialize
 //---------------------------------------------------------------------------
 STDMETHODIMP CShellExt::Initialize(LPCITEMIDLIST pIDFolder, LPDATAOBJECT pDataObj, HKEY hRegKey) {
@@ -89,89 +104,66 @@ STDMETHODIMP CShellExt::Initialize(LPCITEMIDLIST pIDFolder, LPDATAOBJECT pDataOb
     m_bIsBackground = TRUE;
     m_cbFiles = 0;
 
-    // Release previous state
-    if (m_pDataObj) {
-        m_pDataObj->Release();
-        m_pDataObj = NULL;
-    }
+    m_pDataObj.Reset();
     if (m_stgMedium.hGlobal) {
         ReleaseStgMedium(&m_stgMedium);
         ZeroMemory(&m_stgMedium, sizeof(m_stgMedium));
     }
 
-    // Get folder path from pidlFolder
     if (pIDFolder) {
         SHGetPathFromIDListW(pIDFolder, m_szFolder);
     }
 
-    // Try to get selected files via CF_HDROP
-    if (pDataObj) {
-        m_pDataObj = pDataObj;
-        pDataObj->AddRef();
+    if (!pDataObj) return S_OK;
+    m_pDataObj = pDataObj;  // ComPtr assignment AddRef's
 
-        FORMATETC fmte = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
-        if (SUCCEEDED(pDataObj->GetData(&fmte, &m_stgMedium))) {
-            m_cbFiles = DragQueryFileW((HDROP)m_stgMedium.hGlobal, (UINT)-1, NULL, 0);
-            if (m_cbFiles > 0) {
-                m_bIsBackground = FALSE;
+    // Primary: CF_HDROP (regular file/folder selections in the right pane)
+    FORMATETC fmte = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    if (SUCCEEDED(pDataObj->GetData(&fmte, &m_stgMedium))) {
+        m_cbFiles = DragQueryFileW((HDROP)m_stgMedium.hGlobal, (UINT)-1, NULL, 0);
+        if (m_cbFiles > 0) {
+            m_bIsBackground = FALSE;
 
-                // If no folder from pidlFolder, extract from first file path
-                if (m_szFolder[0] == L'\0') {
-                    WCHAR szFile[MAX_PATH];
-                    DragQueryFileW((HDROP)m_stgMedium.hGlobal, 0, szFile, MAX_PATH);
-                    lstrcpyW(m_szFolder, szFile);
-                    WCHAR* pSlash = wcsrchr(m_szFolder, L'\\');
-                    if (pSlash) *pSlash = L'\0';
-                }
+            WCHAR szFile[MAX_PATH];
+            DragQueryFileW((HDROP)m_stgMedium.hGlobal, 0, szFile, MAX_PATH);
 
-                // If single folder selected, use it as target for "hierher" operations
-                if (m_cbFiles == 1) {
-                    WCHAR szFile[MAX_PATH];
-                    DragQueryFileW((HDROP)m_stgMedium.hGlobal, 0, szFile, MAX_PATH);
-                    DWORD attr = GetFileAttributesW(szFile);
-                    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                        lstrcpyW(m_szFolder, szFile);
-                    }
-                }
-            } else {
-                ReleaseStgMedium(&m_stgMedium);
-                ZeroMemory(&m_stgMedium, sizeof(m_stgMedium));
+            bool isSingle = (m_cbFiles == 1);
+            bool isFolder = false;
+            if (isSingle) {
+                DWORD attr = GetFileAttributesW(szFile);
+                isFolder = (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY));
             }
+            ResolveClickTarget(szFile, isFolder, isSingle);
+        } else {
+            ReleaseStgMedium(&m_stgMedium);
+            ZeroMemory(&m_stgMedium, sizeof(m_stgMedium));
         }
+    }
 
-        // Fallback: CF_HDROP unavailable (nav pane, virtual folders, etc.)
-        if (m_bIsBackground) {
-            IShellItemArray* psia = NULL;
-            if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(pDataObj, IID_PPV_ARGS(&psia)))) {
-                DWORD count = 0;
-                psia->GetCount(&count);
-                if (count > 0) {
-                    m_bIsBackground = FALSE;
-                    m_cbFiles = count;
+    // Fallback: CF_HDROP unavailable (nav pane, virtual folders, etc.)
+    if (m_bIsBackground) {
+        ComPtr<IShellItemArray> psia;
+        if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(pDataObj, IID_PPV_ARGS(psia.GetAddressOf())))) {
+            DWORD count = 0;
+            psia->GetCount(&count);
+            if (count > 0) {
+                m_bIsBackground = FALSE;
+                m_cbFiles = count;
 
-                    IShellItem* psi = NULL;
-                    if (SUCCEEDED(psia->GetItemAt(0, &psi))) {
-                        PWSTR pszPath = NULL;
-                        if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
-                            // If no folder from pidlFolder, extract parent from first item
-                            if (m_szFolder[0] == L'\0') {
-                                lstrcpyW(m_szFolder, pszPath);
-                                WCHAR* pSlash = wcsrchr(m_szFolder, L'\\');
-                                if (pSlash) *pSlash = L'\0';
-                            }
-                            // Single folder: use as target for "hierher" operations
-                            if (count == 1) {
-                                SFGAOF attrs = 0;
-                                if (SUCCEEDED(psi->GetAttributes(SFGAO_FOLDER, &attrs)) && (attrs & SFGAO_FOLDER)) {
-                                    lstrcpyW(m_szFolder, pszPath);
-                                }
-                            }
-                            CoTaskMemFree(pszPath);
+                ComPtr<IShellItem> psi;
+                if (SUCCEEDED(psia->GetItemAt(0, psi.GetAddressOf()))) {
+                    PWSTR pszPath = NULL;
+                    if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
+                        bool isSingle = (count == 1);
+                        bool isFolder = false;
+                        if (isSingle) {
+                            SFGAOF attrs = 0;
+                            isFolder = SUCCEEDED(psi->GetAttributes(SFGAO_FOLDER, &attrs)) && (attrs & SFGAO_FOLDER);
                         }
-                        psi->Release();
+                        ResolveClickTarget(pszPath, isFolder, isSingle);
+                        CoTaskMemFree(pszPath);
                     }
                 }
-                psia->Release();
             }
         }
     }
@@ -354,40 +346,33 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
 //---------------------------------------------------------------------------
 // IContextMenu::GetCommandString
 //---------------------------------------------------------------------------
+namespace {
+    struct HelpPair { LPCWSTR w; LPCSTR a; };
+
+    HelpPair LookupHelp(const StringTable& S, UINT idCmd) {
+        switch (idCmd) {
+        case CMD_ADD:       return { S.HelpAdd,      S.HelpAddA      };
+        case CMD_COPY_PATH: return { S.HelpCopyPath, S.HelpCopyPathA };
+        case CMD_SHOW:      return { S.HelpShow,     S.HelpShowA     };
+        case CMD_COPY_HERE: return { S.HelpCopyHere, S.HelpCopyHereA };
+        case CMD_COPY_TO:   return { S.HelpCopyTo,   S.HelpCopyToA   };
+        case CMD_MOVE_HERE: return { S.HelpMoveHere, S.HelpMoveHereA };
+        case CMD_MOVE_TO:   return { S.HelpMoveTo,   S.HelpMoveToA   };
+        case CMD_CLEAR:     return { S.HelpClear,    S.HelpClearA    };
+        case CMD_SETTINGS:  return { S.HelpSettings, S.HelpSettingsA };
+        }
+        return { NULL, NULL };
+    }
+}
+
 STDMETHODIMP CShellExt::GetCommandString(UINT_PTR idCmd, UINT uFlags, UINT FAR* reserved, LPSTR pszName, UINT cchMax) {
-    const StringTable& S = GetStrings();
+    if (uFlags != GCS_HELPTEXTW && uFlags != GCS_HELPTEXTA) return S_OK;
+
+    HelpPair h = LookupHelp(GetStrings(), (UINT)idCmd);
     if (uFlags == GCS_HELPTEXTW) {
-        LPCWSTR szHelp = NULL;
-        switch (idCmd) {
-        case CMD_ADD:       szHelp = S.HelpAdd; break;
-        case CMD_COPY_PATH: szHelp = S.HelpCopyPath; break;
-        case CMD_SHOW:      szHelp = S.HelpShow; break;
-        case CMD_COPY_HERE: szHelp = S.HelpCopyHere; break;
-        case CMD_COPY_TO:   szHelp = S.HelpCopyTo; break;
-        case CMD_MOVE_HERE: szHelp = S.HelpMoveHere; break;
-        case CMD_MOVE_TO:   szHelp = S.HelpMoveTo; break;
-        case CMD_CLEAR:     szHelp = S.HelpClear; break;
-        case CMD_SETTINGS:  szHelp = S.HelpSettings; break;
-        }
-        if (szHelp) {
-            lstrcpynW((LPWSTR)pszName, szHelp, cchMax);
-        }
-    } else if (uFlags == GCS_HELPTEXTA) {
-        LPCSTR szHelp = NULL;
-        switch (idCmd) {
-        case CMD_ADD:       szHelp = S.HelpAddA; break;
-        case CMD_COPY_PATH: szHelp = S.HelpCopyPathA; break;
-        case CMD_SHOW:      szHelp = S.HelpShowA; break;
-        case CMD_COPY_HERE: szHelp = S.HelpCopyHereA; break;
-        case CMD_COPY_TO:   szHelp = S.HelpCopyToA; break;
-        case CMD_MOVE_HERE: szHelp = S.HelpMoveHereA; break;
-        case CMD_MOVE_TO:   szHelp = S.HelpMoveToA; break;
-        case CMD_CLEAR:     szHelp = S.HelpClearA; break;
-        case CMD_SETTINGS:  szHelp = S.HelpSettingsA; break;
-        }
-        if (szHelp) {
-            lstrcpynA(pszName, szHelp, cchMax);
-        }
+        if (h.w) lstrcpynW((LPWSTR)pszName, h.w, cchMax);
+    } else {
+        if (h.a) lstrcpynA(pszName, h.a, cchMax);
     }
     return S_OK;
 }
@@ -412,22 +397,20 @@ std::vector<std::wstring> CShellExt::GetSelectedFiles() {
 
     // Fallback: IShellItemArray (e.g. nav pane folders)
     if (files.empty() && m_pDataObj) {
-        IShellItemArray* psia = NULL;
-        if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(m_pDataObj, IID_PPV_ARGS(&psia)))) {
+        ComPtr<IShellItemArray> psia;
+        if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(m_pDataObj.Get(), IID_PPV_ARGS(psia.GetAddressOf())))) {
             DWORD count = 0;
             psia->GetCount(&count);
             for (DWORD i = 0; i < count; i++) {
-                IShellItem* psi = NULL;
-                if (SUCCEEDED(psia->GetItemAt(i, &psi))) {
+                ComPtr<IShellItem> psi;
+                if (SUCCEEDED(psia->GetItemAt(i, psi.GetAddressOf()))) {
                     PWSTR pszPath = NULL;
                     if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
                         files.push_back(pszPath);
                         CoTaskMemFree(pszPath);
                     }
-                    psi->Release();
                 }
             }
-            psia->Release();
         }
     }
 

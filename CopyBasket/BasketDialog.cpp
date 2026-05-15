@@ -151,32 +151,26 @@ static void AddTreeNodes(HWND hTree, HTREEITEM hParent, const std::wstring& dir)
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);
 
-    // Directories first (recursive)
+    auto insertChild = [&](const std::wstring& name) -> HTREEITEM {
+        std::wstring childPath = dir + L"\\" + name;
+        int icon = GetSysIconIndex(childPath);
+        TVINSERTSTRUCTW tvi = {};
+        tvi.hParent = hParent;
+        tvi.hInsertAfter = TVI_LAST;
+        tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+        tvi.item.pszText = (LPWSTR)name.c_str();
+        tvi.item.iImage = icon;
+        tvi.item.iSelectedImage = icon;
+        return TreeView_InsertItem(hTree, &tvi);
+    };
+
+    // Directories first (recursive), then files
     for (const auto& name : dirs) {
-        std::wstring childPath = dir + L"\\" + name;
-        int icon = GetSysIconIndex(childPath);
-        TVINSERTSTRUCTW tvi = {};
-        tvi.hParent = hParent;
-        tvi.hInsertAfter = TVI_LAST;
-        tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-        tvi.item.pszText = (LPWSTR)name.c_str();
-        tvi.item.iImage = icon;
-        tvi.item.iSelectedImage = icon;
-        HTREEITEM hItem = TreeView_InsertItem(hTree, &tvi);
-        AddTreeNodes(hTree, hItem, childPath);
+        HTREEITEM hItem = insertChild(name);
+        AddTreeNodes(hTree, hItem, dir + L"\\" + name);
     }
-    // Then files
     for (const auto& name : files) {
-        std::wstring childPath = dir + L"\\" + name;
-        int icon = GetSysIconIndex(childPath);
-        TVINSERTSTRUCTW tvi = {};
-        tvi.hParent = hParent;
-        tvi.hInsertAfter = TVI_LAST;
-        tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-        tvi.item.pszText = (LPWSTR)name.c_str();
-        tvi.item.iImage = icon;
-        tvi.item.iSelectedImage = icon;
-        TreeView_InsertItem(hTree, &tvi);
+        insertChild(name);
     }
 }
 

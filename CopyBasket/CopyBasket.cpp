@@ -35,6 +35,15 @@ typedef struct {
     LPCWSTR szData;
 } DOREGSTRUCT;
 
+// Subkeys under HKCR that wire CopyBasket into Explorer as a context-menu
+// handler. One entry per shell location. Shared between RegisterServer and
+// UnregisterServer so the list lives in exactly one place.
+static const wchar_t* const SHELLEX_KEYS[] = {
+    L"*\\shellex\\ContextMenuHandlers\\CopyBasket",
+    L"Directory\\shellex\\ContextMenuHandlers\\CopyBasket",
+    L"Directory\\Background\\shellex\\ContextMenuHandlers\\CopyBasket",
+};
+
 static BOOL RegisterServer(CLSID clsid, LPCWSTR lpszTitle);
 static BOOL UnregisterServer(CLSID clsid, LPCWSTR lpszTitle);
 
@@ -97,30 +106,32 @@ static BOOL RegisterServer(CLSID clsid, LPCWSTR lpszTitle) {
 
     GetModuleFileNameW(g_hModule, szModule, MAX_PATH);
 
-    DOREGSTRUCT entries[] = {
-        { HKEY_CLASSES_ROOT, L"CLSID\\%s",                                                      NULL,              lpszTitle   },
-        { HKEY_CLASSES_ROOT, L"CLSID\\%s\\InprocServer32",                                      NULL,              szModule    },
-        { HKEY_CLASSES_ROOT, L"CLSID\\%s\\InprocServer32",                                      L"ThreadingModel", L"Apartment"},
-        { HKEY_CLASSES_ROOT, L"*\\shellex\\ContextMenuHandlers\\CopyBasket",                     NULL,              szCLSID     },
-        { HKEY_CLASSES_ROOT, L"Directory\\shellex\\ContextMenuHandlers\\CopyBasket",             NULL,              szCLSID     },
-        { HKEY_CLASSES_ROOT, L"Directory\\Background\\shellex\\ContextMenuHandlers\\CopyBasket", NULL,              szCLSID     },
-        { NULL, NULL, NULL, NULL }
+    // COM-server infrastructure: friendly name + InprocServer32 path + threading model.
+    DOREGSTRUCT clsidEntries[] = {
+        { HKEY_CLASSES_ROOT, L"CLSID\\%s",                 NULL,              lpszTitle   },
+        { HKEY_CLASSES_ROOT, L"CLSID\\%s\\InprocServer32", NULL,              szModule    },
+        { HKEY_CLASSES_ROOT, L"CLSID\\%s\\InprocServer32", L"ThreadingModel", L"Apartment"},
     };
-
-    for (int i = 0; entries[i].hRootKey; i++) {
+    for (const auto& e : clsidEntries) {
         WCHAR szSubKey[MAX_PATH];
-        wsprintfW(szSubKey, entries[i].szSubKey, szCLSID);
-
+        wsprintfW(szSubKey, e.szSubKey, szCLSID);
         HKEY hKey;
-        DWORD dwDisp;
-        LRESULT lr = RegCreateKeyExW(entries[i].hRootKey, szSubKey, 0, NULL,
-                                     REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwDisp);
-        if (lr != ERROR_SUCCESS) return FALSE;
+        if (RegCreateKeyExW(e.hRootKey, szSubKey, 0, NULL,
+                            REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
+            return FALSE;
+        RegSetValueExW(hKey, e.lpszValueName, 0, REG_SZ,
+                       (const BYTE*)e.szData, (lstrlenW(e.szData) + 1) * sizeof(WCHAR));
+        RegCloseKey(hKey);
+    }
 
-        WCHAR szData[MAX_PATH];
-        wsprintfW(szData, entries[i].szData, szModule);
-        RegSetValueExW(hKey, entries[i].lpszValueName, 0, REG_SZ,
-                       (const BYTE*)szData, (lstrlenW(szData) + 1) * sizeof(WCHAR));
+    // Shell ContextMenuHandlers — one entry per location (see SHELLEX_KEYS).
+    DWORD cbCLSID = (lstrlenW(szCLSID) + 1) * sizeof(WCHAR);
+    for (const wchar_t* path : SHELLEX_KEYS) {
+        HKEY hKey;
+        if (RegCreateKeyExW(HKEY_CLASSES_ROOT, path, 0, NULL,
+                            REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
+            return FALSE;
+        RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)szCLSID, cbCLSID);
         RegCloseKey(hKey);
     }
 
@@ -140,9 +151,9 @@ static BOOL UnregisterServer(CLSID clsid, LPCWSTR lpszTitle) {
     lstrcpyW(szCLSID, pwsz);
     CoTaskMemFree(pwsz);
 
-    RegDeleteKeyW(HKEY_CLASSES_ROOT, L"*\\shellex\\ContextMenuHandlers\\CopyBasket");
-    RegDeleteKeyW(HKEY_CLASSES_ROOT, L"Directory\\shellex\\ContextMenuHandlers\\CopyBasket");
-    RegDeleteKeyW(HKEY_CLASSES_ROOT, L"Directory\\Background\\shellex\\ContextMenuHandlers\\CopyBasket");
+    for (const wchar_t* path : SHELLEX_KEYS) {
+        RegDeleteKeyW(HKEY_CLASSES_ROOT, path);
+    }
 
     WCHAR szKey[MAX_PATH];
     wsprintfW(szKey, L"CLSID\\%s\\InprocServer32", szCLSID);

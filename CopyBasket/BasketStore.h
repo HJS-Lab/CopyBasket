@@ -11,6 +11,9 @@ namespace BasketStore {
     void AddFiles(const std::vector<std::wstring>& files);
     std::vector<std::wstring> ReadBasket();
     void WriteBasket(const std::vector<std::wstring>& files);
+    // Atomic remove: read-modify-write under a single lock so concurrent
+    // AddFiles cannot be lost between read and write.
+    void RemoveFiles(const std::vector<std::wstring>& files);
     void ClearBasket();
     int GetFileCount();
 

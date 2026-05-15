@@ -6,6 +6,28 @@ namespace BasketStore {
 
 const wchar_t* const REG_KEY = L"Software\\CopyBasket";
 
+// Named mutex serializes all basket-file access. Scope is the logon session
+// (Local\ prefix); %APPDATA% is per-user, so this covers every code path
+// that can touch basket.txt — UI thread, background FileOp thread, and any
+// other Explorer process loading the same DLL.
+static const wchar_t* const BASKET_MUTEX_NAME = L"Local\\CopyBasket.basket.v1";
+
+class BasketLock {
+    HANDLE m_h;
+public:
+    BasketLock() : m_h(CreateMutexW(NULL, FALSE, BASKET_MUTEX_NAME)) {
+        if (m_h) WaitForSingleObject(m_h, INFINITE);
+    }
+    ~BasketLock() {
+        if (m_h) {
+            ReleaseMutex(m_h);
+            CloseHandle(m_h);
+        }
+    }
+    BasketLock(const BasketLock&) = delete;
+    BasketLock& operator=(const BasketLock&) = delete;
+};
+
 std::wstring ExtractFileName(const std::wstring& fullPath) {
     size_t pos = fullPath.find_last_of(L"\\/");
     return (pos != std::wstring::npos) ? fullPath.substr(pos + 1) : fullPath;
@@ -29,45 +51,10 @@ static std::wstring GetBasketFilePath() {
     return dir + L"basket.txt";
 }
 
-void AddFiles(const std::vector<std::wstring>& files) {
-    std::wstring path = GetBasketFilePath();
-    if (path.empty()) return;
-
-    // Read existing entries for duplicate check
-    std::vector<std::wstring> existing = ReadBasket();
-
-    HANDLE hFile = CreateFileW(path.c_str(), FILE_APPEND_DATA, 0, NULL,
-                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return;
-
-    // If file is new/empty, write UTF-16LE BOM
-    if (GetFileSize(hFile, NULL) == 0) {
-        BYTE bom[2] = { 0xFF, 0xFE };
-        DWORD written;
-        WriteFile(hFile, bom, 2, &written, NULL);
-    }
-
-    for (const auto& file : files) {
-        // Duplicate check (case-insensitive)
-        bool found = false;
-        for (const auto& e : existing) {
-            if (_wcsicmp(e.c_str(), file.c_str()) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (found) continue;
-
-        std::wstring line = file + L"\r\n";
-        DWORD written;
-        WriteFile(hFile, line.c_str(), (DWORD)(line.size() * sizeof(WCHAR)), &written, NULL);
-        existing.push_back(file);
-    }
-
-    CloseHandle(hFile);
-}
-
-std::vector<std::wstring> ReadBasket() {
+// Read the basket file without taking the lock (callers that need locking
+// must hold BasketLock themselves; ReadBasket below wraps this for the
+// public API).
+static std::vector<std::wstring> ReadBasketUnlocked() {
     std::vector<std::wstring> result;
     std::wstring path = GetBasketFilePath();
     if (path.empty()) return result;
@@ -83,9 +70,10 @@ std::vector<std::wstring> ReadBasket() {
     }
 
     std::vector<BYTE> buf(fileSize);
-    DWORD bytesRead;
-    ReadFile(hFile, buf.data(), fileSize, &bytesRead, NULL);
+    DWORD bytesRead = 0;
+    BOOL ok = ReadFile(hFile, buf.data(), fileSize, &bytesRead, NULL);
     CloseHandle(hFile);
+    if (!ok) return result;
 
     // Skip UTF-16LE BOM if present
     WCHAR* start = (WCHAR*)buf.data();
@@ -95,7 +83,6 @@ std::vector<std::wstring> ReadBasket() {
         charCount--;
     }
 
-    // Parse lines
     std::wstring current;
     for (DWORD i = 0; i < charCount; i++) {
         if (start[i] == L'\r') continue;
@@ -108,44 +95,104 @@ std::vector<std::wstring> ReadBasket() {
             current += start[i];
         }
     }
-    if (!current.empty()) {
-        result.push_back(current);
-    }
-
+    if (!current.empty()) result.push_back(current);
     return result;
 }
 
-void WriteBasket(const std::vector<std::wstring>& files) {
+// Write all entries to basket.txt via temp-file + atomic rename. Holds the
+// lock for the whole operation; on any I/O failure the existing file is
+// left untouched. The unlocked variant is used by AddFiles to avoid
+// re-entering the same mutex.
+static bool WriteBasketUnlocked(const std::vector<std::wstring>& files) {
+    std::wstring path = GetBasketFilePath();
+    if (path.empty()) return false;
+
     if (files.empty()) {
-        ClearBasket();
-        return;
+        // Empty basket: delete the file (matches old ClearBasket behavior).
+        DeleteFileW(path.c_str());
+        return true;
     }
 
-    std::wstring path = GetBasketFilePath();
-    if (path.empty()) return;
-
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL,
+    std::wstring tempPath = path + L".tmp";
+    HANDLE hFile = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, NULL,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return;
+    if (hFile == INVALID_HANDLE_VALUE) return false;
 
-    // Write UTF-16LE BOM
+    auto writeAll = [&](const void* data, DWORD cb) -> bool {
+        DWORD written = 0;
+        return WriteFile(hFile, data, cb, &written, NULL) && written == cb;
+    };
+
+    bool ok = true;
     BYTE bom[2] = { 0xFF, 0xFE };
-    DWORD written;
-    WriteFile(hFile, bom, 2, &written, NULL);
+    ok = ok && writeAll(bom, 2);
 
     for (const auto& file : files) {
+        if (!ok) break;
         std::wstring line = file + L"\r\n";
-        WriteFile(hFile, line.c_str(), (DWORD)(line.size() * sizeof(WCHAR)), &written, NULL);
+        ok = writeAll(line.c_str(), (DWORD)(line.size() * sizeof(WCHAR)));
     }
 
     CloseHandle(hFile);
+
+    if (!ok) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+
+    // Atomic replace: existing basket.txt is replaced in one filesystem op.
+    if (!MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+    return true;
+}
+
+void AddFiles(const std::vector<std::wstring>& files) {
+    if (files.empty()) return;
+    BasketLock lock;
+
+    std::vector<std::wstring> combined = ReadBasketUnlocked();
+    for (const auto& file : files) {
+        bool dup = false;
+        for (const auto& e : combined) {
+            if (_wcsicmp(e.c_str(), file.c_str()) == 0) { dup = true; break; }
+        }
+        if (!dup) combined.push_back(file);
+    }
+    WriteBasketUnlocked(combined);
+}
+
+std::vector<std::wstring> ReadBasket() {
+    BasketLock lock;
+    return ReadBasketUnlocked();
+}
+
+void WriteBasket(const std::vector<std::wstring>& files) {
+    BasketLock lock;
+    WriteBasketUnlocked(files);
+}
+
+void RemoveFiles(const std::vector<std::wstring>& files) {
+    if (files.empty()) return;
+    BasketLock lock;
+
+    std::vector<std::wstring> basket = ReadBasketUnlocked();
+    for (const auto& target : files) {
+        for (auto it = basket.begin(); it != basket.end(); ++it) {
+            if (_wcsicmp(it->c_str(), target.c_str()) == 0) {
+                basket.erase(it);
+                break;
+            }
+        }
+    }
+    WriteBasketUnlocked(basket);
 }
 
 void ClearBasket() {
+    BasketLock lock;
     std::wstring path = GetBasketFilePath();
-    if (!path.empty()) {
-        DeleteFileW(path.c_str());
-    }
+    if (!path.empty()) DeleteFileW(path.c_str());
 }
 
 int GetFileCount() {

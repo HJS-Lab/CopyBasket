@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shlobj.h>
+#include <wrl/client.h>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,7 @@ typedef CShellExtClassFactory* LPCSHELLEXTCLASSFACTORY;
 class CShellExt : public IContextMenu, IShellExtInit {
 protected:
     ULONG m_cRef;
-    LPDATAOBJECT m_pDataObj;
+    Microsoft::WRL::ComPtr<IDataObject> m_pDataObj;
     STGMEDIUM m_stgMedium;
     UINT m_cbFiles;
     BOOL m_bIsBackground;
@@ -76,5 +77,9 @@ private:
     // Shared dispatch for the four file-operation context-menu commands.
     // isCopy=false → move; toPicker=false → use m_szFolder, toPicker=true → ask user.
     void HandleFileOp(LPCMINVOKECOMMANDINFO lpcmi, bool isCopy, bool toPicker);
+
+    // Sets m_szFolder from the clicked item. Single-folder selections use the
+    // folder itself as the operation target; everything else uses its parent.
+    void ResolveClickTarget(LPCWSTR firstPath, bool isFolder, bool isSingleItem);
 };
 typedef CShellExt* LPCSHELLEXT;

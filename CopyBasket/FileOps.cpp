@@ -64,17 +64,9 @@ public:
     IFACEMETHODIMP StartOperations()    { return S_OK; }
     IFACEMETHODIMP FinishOperations(HRESULT) {
         if (m_removeFromBasket && !m_processed.empty()) {
-            // Read basket fresh — preserves items added during the operation
-            std::vector<std::wstring> basket = BasketStore::ReadBasket();
-            for (const auto& proc : m_processed) {
-                for (auto it = basket.begin(); it != basket.end(); ++it) {
-                    if (_wcsicmp(it->c_str(), proc.c_str()) == 0) {
-                        basket.erase(it);
-                        break;
-                    }
-                }
-            }
-            BasketStore::WriteBasket(basket);
+            // Atomic remove preserves any entries the user added during the
+            // operation (read-modify-write happens under a single lock).
+            BasketStore::RemoveFiles(m_processed);
         }
         return S_OK;
     }

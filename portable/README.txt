@@ -65,6 +65,20 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.5.6
+  - Thread-safe basket store: all basket.txt access serialised through a
+    session-scoped named mutex; WriteBasket writes via temp file +
+    atomic rename so concurrent operations from multiple Explorer
+    processes can no longer lose entries or leave the file half-written
+  - Sink trims processed items via a new RemoveFiles API that does the
+    read-modify-write under a single lock, preserving entries added
+    during a long-running copy/move
+  - Internal refactor: WRL ComPtr for IShellItemArray / IShellItem /
+    IDataObject in ShellExt.cpp; GetCommandString collapsed into a
+    single lookup table; ResolveClickTarget helper shared between HDROP
+    and IShellItemArray paths; SHELLEX_KEYS table shared between
+    Register and Unregister; AddTreeNodes insert block as a lambda
+
 v1.5.5
   - Conflict, abort, and incident dialogs are now anchored to Explorer's
     window so they no longer disappear behind other windows (relevant

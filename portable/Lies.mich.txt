@@ -70,6 +70,23 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.5.6
+  - Thread-sicherer Korb-Speicher: alle Zugriffe auf basket.txt werden
+    über einen Session-gebundenen Named Mutex serialisiert; WriteBasket
+    schreibt über eine Temp-Datei + atomares Rename, sodass parallele
+    Operationen aus mehreren Explorer-Prozessen keine Einträge mehr
+    verlieren oder die Datei halb beschrieben hinterlassen können
+  - Sink entfernt verarbeitete Einträge über die neue RemoveFiles-API,
+    die das Read-Modify-Write unter einem einzigen Lock durchführt —
+    Einträge, die während einer laufenden Kopier-/Verschiebe-Operation
+    hinzugefügt werden, bleiben erhalten
+  - Interner Refactor: WRL-ComPtr für IShellItemArray / IShellItem /
+    IDataObject in ShellExt.cpp; GetCommandString zu einer einzigen
+    Lookup-Tabelle zusammengefasst; ResolveClickTarget-Helper für die
+    beiden Pfade in Initialize (HDROP und IShellItemArray); SHELLEX_KEYS-
+    Tabelle zwischen Register und Unregister geteilt; AddTreeNodes-
+    Insert-Block als Lambda
+
 v1.5.5
   - Konflikt-, Abort- und Vorfalls-Dialoge werden jetzt am Explorer-
     Fenster verankert und verschwinden nicht mehr hinter anderen Fenstern
