@@ -151,13 +151,25 @@ Tab Control mit zwei Seiten:
 - **Installation:** `$PROGRAMFILES64\CopyBasket` bzw. `$PROGRAMFILES\CopyBasket`. Inhalt: DLL + basket.ico + Uninstall.exe (kein CB-CMT.exe — nur Portable). Eintrag unter `HKLM\...\Uninstall\CopyBasket`
 - **Deinstallation** entfernt `HKCU\Software\CopyBasket` + `%APPDATA%\CopyBasket`
 - **Version:** automatisch aus `Version.h` via `!searchparse`
-- **Build:** nur via GitHub Actions (NSIS lokal nicht verfuegbar), getriggert durch Tag-Push (`git tag vX.Y.Z && git push origin vX.Y.Z`). Workflow installiert NSIS via **scoop** (`scoop bucket add extras`); chocolatey und SourceForge-Direkt-Downloads waren unzuverlaessig
+- **Build:** nur via GitHub Actions (NSIS lokal nicht verfuegbar), getriggert durch Tag-Push (`git tag vX.Y.Z && git push origin vX.Y.Z`). **Vor dem Tag-Push muss `release-notes/vX.Y.Z.md` existieren und gecommittet sein** (siehe Abschnitt "Release Notes"), sonst scheitert der Workflow am `Create GitHub Release`-Step. Workflow installiert NSIS via **scoop** (`scoop bucket add extras`); chocolatey und SourceForge-Direkt-Downloads waren unzuverlaessig
 - **Output:** `build\CopyBasket-X.Y.Z-setup.exe`
 
 ### Release-Assets (GitHub)
 
 - `CopyBasket_vX.Y.Z.zip` — Portable (DLLs + CB-CMT.exe fuer manuelle Registrierung, inkl. `README.txt` und `Lies.mich.txt`)
 - `CopyBasket-X.Y.Z-setup.exe` — NSIS Installer (regsvr32 automatisch, kein CB-CMT.exe)
+
+### Release Notes
+
+- **Pflicht-Datei pro Release:** `release-notes/vX.Y.Z.md` — wird vom Workflow ueber `body_path` als GitHub-Release-Body verwendet. Fehlt sie, scheitert der `Create GitHub Release`-Step und kein Release wird angelegt (Artefakte sind dann gebaut aber nicht published)
+- **Inhalt:** Highlights / Vorher-Nachher-Tabellen / "Files changed"-Block / Download-Links. Ausfuehrlicher als die README.md-Changelog-Einzeiler — die Notes ersetzen die ehemals auto-generierten GitHub-Release-Notes komplett (`generate_release_notes: true` ist raus)
+- **Reihenfolge pro Release:**
+  1. `Version.h` bumpen
+  2. Changelog-Eintraege in `README.md` + `portable/README.txt` + `portable/Lies.mich.txt`
+  3. `release-notes/vX.Y.Z.md` schreiben
+  4. Alles in einem Release-Commit (`Release vX.Y.Z: ...`) committen + pushen
+  5. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+- **Backfill alter Releases:** `gh release edit vX.Y.Z --notes-file release-notes/vX.Y.Z.md`
 
 ### Portable-Dokumentation
 
