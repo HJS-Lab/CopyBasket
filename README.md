@@ -26,6 +26,7 @@ A Windows Explorer shell extension that lets you collect files into a virtual "b
 | **Direct Operations** | "Copy to..." / "Move to..." work on selected files when the basket is empty |
 | **Async File Ops** | All copy/move operations run on a background thread via IFileOperation — Explorer stays responsive |
 | **Smart Basket** | Only successfully processed files are removed from the basket — partial failures keep remaining items |
+| **Thread-safe Storage** | Basket file is serialised across Explorer processes via a named mutex; writes are atomic (temp file + `MoveFileExW`) so concurrent operations cannot lose entries or leave it half-written |
 | **Navigation Pane** | Works with items selected in the Explorer navigation pane and virtual folders |
 | **i18n** | German and English UI, switchable via Settings dialog |
 
@@ -124,7 +125,7 @@ Output:
 
 CopyBasket is a COM DLL implementing `IShellExtInit` and `IContextMenu`. It registers as a context menu handler for files, directories, and the directory background.
 
-- **Basket Storage:** `%APPDATA%\CopyBasket\basket.txt` (UTF-16LE with BOM)
+- **Basket Storage:** `%APPDATA%\CopyBasket\basket.txt` (UTF-16LE with BOM); all access serialised through a session-scoped named mutex (`Local\CopyBasket.basket.v1`) and writes are atomic via temp file + `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`
 - **Incident Log:** `%APPDATA%\CopyBasket\operations.log` (rewritten per incident, only on abort/partial failure)
 - **File Operations:** `IFileOperation` with `CFileOperationProgressSink` on a background thread (`_beginthreadex`)
 - **Reliable Logging:** Pre-scan + post-check via filesystem verification — works for deeply nested directory trees regardless of IFileOperation callback behaviour
