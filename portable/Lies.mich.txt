@@ -70,6 +70,12 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.5.8
+  - Nur Release-Workflow-Infrastruktur: softprops/action-gh-release auf
+    v3 angehoben (nativ Node 24), Runner auf windows-2025-vs2026
+    festgepinnt, obsoletes Node-24-Forcing-Env entfernt. Binäre
+    Artefakte sind identisch zu v1.5.7
+
 v1.5.7
   - CB-CMT prüft jetzt alle drei Shell-Registrierungs-Subkeys (*,
     Directory, Directory\Background) statt nur einen. Eine teilweise

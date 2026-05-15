@@ -143,6 +143,9 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.5.8
+- **Release-workflow infrastructure only** — bumped `softprops/action-gh-release` to v3 (native Node 24), pinned the runner to `windows-2025-vs2026` (the redirect target `windows-latest` is moving to by 2026-06-15), and removed the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround which is no longer needed. Binary artifacts are identical to v1.5.7
+
 ### v1.5.7
 - **CB-CMT: detect partial registration** — status detection now inspects all three shell-registration subkeys (`*`, `Directory`, `Directory\Background`) instead of only `*`. A partially-registered DLL (e.g. after a failed uninstall) is correctly reported as "not fully registered", so the dialog defaults to **Activate** and lets the user complete the registration in one click
 - **CB-CMT: retry-on-error** — DLL-not-found, `ShellExecuteEx` failures, and non-zero `regsvr32` exit codes now keep the dialog open instead of force-closing. Consistent across all error paths: only success calls `EndDialog`, so the user can fix the underlying problem and retry without relaunching the tool

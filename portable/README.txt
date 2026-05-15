@@ -65,6 +65,12 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.5.8
+  - Release-workflow infrastructure only: bumped softprops/action-gh-
+    release to v3 (native Node 24), pinned the runner to
+    windows-2025-vs2026, removed the obsolete Node-24 forcing env var.
+    Binary artifacts are identical to v1.5.7
+
 v1.5.7
   - CB-CMT now checks all three shell-registration subkeys (*, Directory,
     Directory\Background) instead of only one. A partially-registered DLL
