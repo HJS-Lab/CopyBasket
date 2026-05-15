@@ -290,6 +290,31 @@ static void RemoveSelected(DlgData* dd) {
 
 static void LayoutControls(HWND hwnd, DlgData* dd);  // forward declaration
 
+// Shared layout math used by both LayoutControls and SplitterWndProc.
+// contentH = client height below status bar.
+// availH   = height available for ListView + Splitter + TreeView.
+struct LayoutMetrics {
+    int width;     // client width
+    int contentH;
+    int availH;
+};
+
+static LayoutMetrics ComputeLayoutMetrics(HWND hwnd, DlgData* dd) {
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    int sbHeight = 0;
+    if (dd->hStatusBar) {
+        RECT sbRect;
+        GetWindowRect(dd->hStatusBar, &sbRect);
+        sbHeight = sbRect.bottom - sbRect.top;
+    }
+    LayoutMetrics m;
+    m.width    = rc.right;
+    m.contentH = rc.bottom - sbHeight;
+    m.availH   = m.contentH - BTN_H - 3 * MARGIN - SPLITTER_H;
+    return m;
+}
+
 static LRESULT CALLBACK SplitterWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_LBUTTONDOWN:
@@ -309,18 +334,9 @@ static LRESULT CALLBACK SplitterWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             ClientToScreen(hwnd, &pt);
             ScreenToClient(hParent, &pt);
 
-            // Recompute layout constants (must match LayoutControls)
-            RECT rc;
-            GetClientRect(hParent, &rc);
-            int sbHeight = 0;
-            if (dd->hStatusBar) {
-                RECT sbRect;
-                GetWindowRect(dd->hStatusBar, &sbRect);
-                sbHeight = sbRect.bottom - sbRect.top;
-            }
-            int contentH = rc.bottom - sbHeight;
-            int availH = contentH - BTN_H - 3 * MARGIN - SPLITTER_H;
-            if (availH < 2 * MIN_PANE_H) return 0;
+            LayoutMetrics m = ComputeLayoutMetrics(hParent, dd);
+            if (m.availH < 2 * MIN_PANE_H) return 0;
+            int availH = m.availH;
 
             // pt.y is where the splitter's top edge should be (in parent coords)
             int newListH = pt.y - MARGIN;
@@ -348,22 +364,13 @@ static LRESULT CALLBACK SplitterWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 }
 
 static void LayoutControls(HWND hwnd, DlgData* dd) {
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-    int w = rc.right;
-    int h = rc.bottom;
+    // Notify status bar to self-position before measuring it.
+    if (dd->hStatusBar) SendMessageW(dd->hStatusBar, WM_SIZE, 0, 0);
 
-    // Status bar auto-positions itself at the bottom
-    int sbHeight = 0;
-    if (dd->hStatusBar) {
-        SendMessageW(dd->hStatusBar, WM_SIZE, 0, 0);
-        RECT sbRect;
-        GetWindowRect(dd->hStatusBar, &sbRect);
-        sbHeight = sbRect.bottom - sbRect.top;
-    }
-
-    int contentH = h - sbHeight;
-    int availH = contentH - BTN_H - 3 * MARGIN - SPLITTER_H;  // list + tree + gap before buttons
+    LayoutMetrics m = ComputeLayoutMetrics(hwnd, dd);
+    int w = m.width;
+    int contentH = m.contentH;
+    int availH = m.availH;
     if (availH < 2 * MIN_PANE_H) availH = 2 * MIN_PANE_H;
 
     int listH = availH * dd->splitRatioPct / 100;
