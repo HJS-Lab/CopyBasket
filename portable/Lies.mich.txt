@@ -70,6 +70,17 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.5.5
+  - Konflikt-, Abort- und Vorfalls-Dialoge werden jetzt am Explorer-
+    Fenster verankert und verschwinden nicht mehr hinter anderen Fenstern
+    (relevant bei Cross-Volume-MOVE-Konflikten)
+  - Interner Refactor: ausgelagerte Helper und entfernte Duplikate in
+    BasketDialog, ShellExt, FileOps und Strings — Single Source of Truth
+    für Registry-Pfad, Pfad-Tail-Extraktion und Layout-Metriken;
+    InvokeCommand und ExecuteFileOpCOM in Helper zerlegt; DlgWndProc in
+    Per-Message-Handler aufgeteilt; WRL-ComPtr für COM-Cleanup;
+    Einstellungs-Dialog-Strings über die i18n-Tabelle
+
 v1.5.0
   - Drag & Drop in die Korb-Anzeige: Dateien oder Ordner aus dem Explorer
     direkt auf den offenen Korb-Dialog ziehen (duplikat-sicher)

@@ -65,6 +65,17 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.5.5
+  - Conflict, abort, and incident dialogs are now anchored to Explorer's
+    window so they no longer disappear behind other windows (relevant
+    during cross-volume MOVE conflicts)
+  - Internal refactoring: extracted helpers and removed duplication across
+    BasketDialog, ShellExt, FileOps, and Strings — single source of truth
+    for the registry path, path-tail extraction, and layout metrics;
+    InvokeCommand and ExecuteFileOpCOM decomposed into helpers; DlgWndProc
+    split into per-message handlers; WRL ComPtr for COM cleanup; settings
+    dialog strings routed through the i18n table
+
 v1.5.0
   - Drag & Drop into the basket viewer: drop files or folders from Explorer
     directly onto the open basket dialog (duplicate-safe)
