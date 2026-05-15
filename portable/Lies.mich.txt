@@ -70,6 +70,21 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.5.7
+  - CB-CMT prüft jetzt alle drei Shell-Registrierungs-Subkeys (*,
+    Directory, Directory\Background) statt nur einen. Eine teilweise
+    registrierte DLL (z.B. nach einem fehlgeschlagenen Uninstall) wird
+    korrekt als „nicht vollständig registriert" erkannt und der Dialog
+    wählt Activate vor, damit der User die Registrierung mit einem Klick
+    vervollständigen kann
+  - CB-CMT lässt den Dialog bei Fehlern offen (DLL fehlt, ShellExecuteEx
+    schlägt fehl, regsvr32 Exit-Code != 0) — nur bei Erfolg wird der
+    Dialog geschlossen. So kann der User die Ursache beheben und mit OK
+    erneut versuchen, ohne das Tool neu zu starten
+  - CB-CMT interner Refactor: IDOK-Fall in BuildDllPath / RunRegsvr32 /
+    OnOkClicked-Helper aufgeteilt; Message-Strings als file-scope-
+    Konstanten gebündelt; durchgängig StringCchPrintfW mit Längenprüfung
+
 v1.5.6
   - Thread-sicherer Korb-Speicher: alle Zugriffe auf basket.txt werden
     über einen Session-gebundenen Named Mutex serialisiert; WriteBasket

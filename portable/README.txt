@@ -65,6 +65,19 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.5.7
+  - CB-CMT now checks all three shell-registration subkeys (*, Directory,
+    Directory\Background) instead of only one. A partially-registered DLL
+    (e.g. after a failed uninstall) is reported as "not fully registered"
+    and the dialog defaults to Activate so the user can complete the
+    registration in one click
+  - CB-CMT keeps the dialog open on errors (DLL missing, ShellExecuteEx
+    failure, regsvr32 exit code != 0) — only success closes the dialog,
+    so the user can fix the problem and retry without relaunching
+  - CB-CMT internal refactor: IDOK case split into BuildDllPath /
+    RunRegsvr32 / OnOkClicked helpers; message strings hoisted to file-
+    scope constants; bounded StringCchPrintfW throughout
+
 v1.5.6
   - Thread-safe basket store: all basket.txt access serialised through a
     session-scoped named mutex; WriteBasket writes via temp file +

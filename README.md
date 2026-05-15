@@ -143,6 +143,11 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.5.7
+- **CB-CMT: detect partial registration** — status detection now inspects all three shell-registration subkeys (`*`, `Directory`, `Directory\Background`) instead of only `*`. A partially-registered DLL (e.g. after a failed uninstall) is correctly reported as "not fully registered", so the dialog defaults to **Activate** and lets the user complete the registration in one click
+- **CB-CMT: retry-on-error** — DLL-not-found, `ShellExecuteEx` failures, and non-zero `regsvr32` exit codes now keep the dialog open instead of force-closing. Consistent across all error paths: only success calls `EndDialog`, so the user can fix the underlying problem and retry without relaunching the tool
+- **CB-CMT internal refactor** — 108-line `IDOK` case split into `BuildDllPath` / `RunRegsvr32` / `OnOkClicked` helpers; user-visible message strings hoisted to file-scope `static const wchar_t*` (single source of truth); bounded `StringCchPrintfW` everywhere (no more `wsprintfW`); `IsCopyBasketRegistered` and friends marked `static`
+
 ### v1.5.6
 - **Thread-safe basket store** — all `basket.txt` access is now serialised through a session-scoped named mutex (`Local\CopyBasket.basket.v1`), and `WriteBasket` writes through a temp file + `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` so concurrent operations from multiple Explorer processes can no longer lose entries or leave the file half-written. New `BasketStore::RemoveFiles` API does a read-modify-write under a single lock so entries added during a long-running copy/move operation cannot be lost when the sink trims processed items
 - **Internal refactoring** — `Microsoft::WRL::ComPtr` now used for `IShellItemArray` / `IShellItem` / `IDataObject` in `ShellExt.cpp` (manual `Release` calls eliminated); `GetCommandString` collapsed from two parallel 9-case switches into a single `LookupHelp` table; new `ResolveClickTarget` helper shared between the HDROP and IShellItemArray paths in `Initialize`; `SHELLEX_KEYS[]` table shared between `RegisterServer` and `UnregisterServer`; `AddTreeNodes` insert block extracted into a lambda
