@@ -264,12 +264,58 @@ static void ShowAbortDialog(HWND hwndOwner, const std::wstring& logPath,
 }
 
 // ---------------------------------------------------------------------------
-// ExecuteFileOpCOM — IFileOperation-based file copy/move
+// SchedulePerFileOps — queue copy/move calls into the IFileOperation
+// ---------------------------------------------------------------------------
+static void SchedulePerFileOps(IFileOperation* pfo, IShellItem* psiDest,
+                               UINT wFunc, const std::vector<std::wstring>& files) {
+    for (const auto& filePath : files) {
+        IShellItem* psiFrom = NULL;
+        if (SUCCEEDED(SHCreateItemFromParsingName(filePath.c_str(), NULL,
+                                                  IID_PPV_ARGS(&psiFrom)))) {
+            if (wFunc == FO_COPY)
+                pfo->CopyItem(psiFrom, psiDest, NULL, NULL);
+            else
+                pfo->MoveItem(psiFrom, psiDest, NULL, NULL);
+            psiFrom->Release();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ClassifyOutcome — filesystem-based post-check: which expected files made it
+// ---------------------------------------------------------------------------
+struct PostCheckResult {
+    std::vector<std::wstring> actuallySucceeded;
+    std::vector<std::wstring> notProcessed;
+};
+
+static PostCheckResult ClassifyOutcome(const std::vector<ExpectedFile>& expected, UINT wFunc) {
+    PostCheckResult r;
+    for (const auto& ef : expected) {
+        DWORD srcAttr  = GetFileAttributesW(ef.sourcePath.c_str());
+        DWORD destAttr = GetFileAttributesW(ef.destPath.c_str());
+        bool srcExists  = (srcAttr  != INVALID_FILE_ATTRIBUTES);
+        bool destExists = (destAttr != INVALID_FILE_ATTRIBUTES);
+
+        if (wFunc == FO_MOVE) {
+            if (!srcExists && destExists) r.actuallySucceeded.push_back(ef.sourcePath);
+            else                          r.notProcessed.push_back(ef.sourcePath);
+        } else { // FO_COPY
+            if (destExists) r.actuallySucceeded.push_back(ef.sourcePath);
+            else            r.notProcessed.push_back(ef.sourcePath);
+        }
+    }
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// ExecuteFileOpCOM — IFileOperation-based file copy/move (orchestrator)
 // ---------------------------------------------------------------------------
 static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::wstring>& files,
                              const std::wstring& destFolder, bool removeFromBasket) {
     if (files.empty() || destFolder.empty()) return FALSE;
 
+    // ---- Phase 1: COM setup, anchor dialogs, schedule per-file ops ----
     IFileOperation* pfo = NULL;
     HRESULT hr = CoCreateInstance(CLSID_FileOperation, NULL, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
     if (FAILED(hr)) return FALSE;
@@ -279,7 +325,6 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
     if (hwndOwner && IsWindow(hwndOwner)) {
         pfo->SetOwnerWindow(hwndOwner);
     }
-
     pfo->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR);
 
     IShellItem* psiDest = NULL;
@@ -289,21 +334,12 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
         return FALSE;
     }
 
-    for (const auto& filePath : files) {
-        IShellItem* psiFrom = NULL;
-        hr = SHCreateItemFromParsingName(filePath.c_str(), NULL, IID_PPV_ARGS(&psiFrom));
-        if (SUCCEEDED(hr)) {
-            if (wFunc == FO_COPY)
-                pfo->CopyItem(psiFrom, psiDest, NULL, NULL);
-            else
-                pfo->MoveItem(psiFrom, psiDest, NULL, NULL);
-            psiFrom->Release();
-        }
-    }
+    SchedulePerFileOps(pfo, psiDest, wFunc, files);
 
-    // Pre-scan: recursively enumerate all source files so we can verify
-    // the actual outcome afterwards (callbacks alone are not reliable
-    // for deeply nested directories).
+    // ---- Phase 2: pre-scan expected outcome, register sink, perform ops ----
+    // Pre-scan recursively enumerates all source files so we can verify the
+    // actual outcome afterwards (callbacks alone are not reliable for
+    // deeply nested directories).
     std::vector<ExpectedFile> expectedFiles = BuildExpectedFiles(files, destFolder);
 
     CFileOperationProgressSink* pSink = new CFileOperationProgressSink(removeFromBasket);
@@ -315,34 +351,19 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
     BOOL fAborted = FALSE;
     pfo->GetAnyOperationsAborted(&fAborted);
 
-    // Post-check: determine actual outcome by inspecting the filesystem.
-    std::vector<std::wstring> actuallySucceeded;
-    std::vector<std::wstring> notProcessed;
-    for (const auto& ef : expectedFiles) {
-        DWORD srcAttr  = GetFileAttributesW(ef.sourcePath.c_str());
-        DWORD destAttr = GetFileAttributesW(ef.destPath.c_str());
-        bool srcExists  = (srcAttr  != INVALID_FILE_ATTRIBUTES);
-        bool destExists = (destAttr != INVALID_FILE_ATTRIBUTES);
+    // ---- Phase 3: filesystem post-check, write log / show dialog if needed ----
+    PostCheckResult outcome = ClassifyOutcome(expectedFiles, wFunc);
 
-        if (wFunc == FO_MOVE) {
-            if (!srcExists && destExists) actuallySucceeded.push_back(ef.sourcePath);
-            else                          notProcessed.push_back(ef.sourcePath);
-        } else { // FO_COPY
-            if (destExists) actuallySucceeded.push_back(ef.sourcePath);
-            else            notProcessed.push_back(ef.sourcePath);
-        }
-    }
-
-    // On abort or incomplete outcome: write incident log and show notification
-    if (fAborted || !notProcessed.empty()) {
+    if (fAborted || !outcome.notProcessed.empty()) {
         std::wstring logPath = WriteOperationLog(wFunc, destFolder, fAborted != FALSE,
-                                                  actuallySucceeded, notProcessed);
+                                                  outcome.actuallySucceeded, outcome.notProcessed);
         if (!logPath.empty()) {
-            int total = (int)(actuallySucceeded.size() + notProcessed.size());
-            ShowAbortDialog(hwndOwner, logPath, (int)notProcessed.size(), total);
+            int total = (int)(outcome.actuallySucceeded.size() + outcome.notProcessed.size());
+            ShowAbortDialog(hwndOwner, logPath, (int)outcome.notProcessed.size(), total);
         }
     }
 
+    // ---- Cleanup ----
     pfo->Unadvise(dwCookie);
     pSink->Release();
     psiDest->Release();
