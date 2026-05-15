@@ -142,6 +142,10 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.5.5
+- **Dialogs anchored to Explorer's window** — conflict, abort, and incident dialogs no longer disappear behind other windows during file operations (especially relevant for cross-volume MOVE conflicts). `IFileOperation::SetOwnerWindow(lpcmi->hwnd)` plus `TASKDIALOGCONFIG::hwndParent` with `TDF_POSITION_RELATIVE_TO_WINDOW`; falls back to `GetForegroundWindow()` if the owner hwnd has become invalid
+- **Internal refactoring** — single source of truth for `BasketStore::REG_KEY`, `BasketStore::ExtractFileName`, and dialog layout metrics (`ComputeLayoutMetrics`); settings-dialog strings (language names, copyright) routed through the i18n table; named layout constants (`BTN_W` / `BTN_H` / `MARGIN`) and TaskDialog button IDs / `BROWSE_THROTTLE_MS`; consolidated icon-lookup helper with attribute-hint fallback; `DlgWndProc` split into per-message handlers (`OnCreate` / `OnDropFiles` / `OnCommand` / `OnNotify`); four `InvokeCommand` file-op cases collapsed into one `HandleFileOp(isCopy, toPicker)` helper; `ExecuteFileOpCOM` decomposed into setup / perform / post-check phases; `Microsoft::WRL::ComPtr` replaces manual `Release` for `IFileOperation` and `IShellItem`
+
 ### v1.5.0
 - **Drag & Drop into the basket viewer** — drop files or folders from Explorer directly onto the open basket dialog to add them (duplicate-safe)
 - **Race-condition-safe basket update** after copy/move: `FinishOperations` now re-reads the basket from disk and subtracts the processed items, so entries added **during** a long-running operation are preserved
