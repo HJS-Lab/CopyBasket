@@ -173,6 +173,8 @@ GUI-Tool zur manuellen Aktivierung/Deaktivierung der Shell Extension (nur Portab
 
 Funktionen: Activate/Deactivate-Radio mit Statuserkennung; optionale Checkbox "Delete User Settings" (`HKCU\Software\CopyBasket` + `%APPDATA%\CopyBasket\`) mit Warnhinweis und Sicherheitsabfrage; DLL-Existenzpruefung vor `regsvr32`.
 
+Statuserkennung prueft **alle drei** Shell-Subkeys aus `SHELLEX_KEYS[]` (Liste `REG_PATHS[]` in `regsvr Tool/CopyBasketContextMenu/main.cpp`, parallel zu `SHELLEX_KEYS[]` in `CopyBasket.cpp` — bei Erweiterung der Shell-Locations beide pflegen). Partiell registriert (z.B. nach kaputtem Uninstall) zaehlt als „nicht registriert" → Default ist Activate, damit der User die Registrierung komplettieren kann. Fehler (DLL fehlt, regsvr32 schlaegt fehl, Exit-Code ≠ 0) lassen den Dialog **offen** fuer Retry; nur Erfolg ruft `EndDialog`.
+
 Build: `MSBuild "regsvr Tool/CopyBasketContextMenu.sln" /p:Configuration=Release /p:Platform=x64`
 
 ## Konventionen
