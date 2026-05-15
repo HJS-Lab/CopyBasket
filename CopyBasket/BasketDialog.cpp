@@ -26,7 +26,7 @@ static const int MIN_HEIGHT = 400;
 static const int SPLITTER_H = 6;
 static const int MIN_PANE_H = 60;
 
-static const WCHAR* REG_KEY = L"Software\\CopyBasket";
+using BasketStore::REG_KEY;
 
 struct DlgData {
     HWND hList;

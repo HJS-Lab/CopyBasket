@@ -1,4 +1,5 @@
 #include "Strings.h"
+#include "BasketStore.h"
 
 static const StringTable s_DE = {
     // Context menu items
@@ -157,7 +158,7 @@ const StringTable& GetStrings() {
 void LoadLanguageSetting() {
     WCHAR szLang[16] = {};
     DWORD cbData = sizeof(szLang);
-    LSTATUS res = RegGetValueW(HKEY_CURRENT_USER, L"Software\\CopyBasket",
+    LSTATUS res = RegGetValueW(HKEY_CURRENT_USER, BasketStore::REG_KEY,
                                 L"Language", RRF_RT_REG_SZ, NULL, szLang, &cbData);
     if (res == ERROR_SUCCESS && _wcsicmp(szLang, L"en") == 0) {
         s_pActive = &s_EN;
@@ -168,7 +169,7 @@ void LoadLanguageSetting() {
 
 void SaveLanguageSetting(const wchar_t* lang) {
     HKEY hKey;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\CopyBasket", 0, NULL,
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, BasketStore::REG_KEY, 0, NULL,
                          0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         DWORD cbData = (DWORD)((wcslen(lang) + 1) * sizeof(wchar_t));
         RegSetValueExW(hKey, L"Language", 0, REG_SZ, (const BYTE*)lang, cbData);

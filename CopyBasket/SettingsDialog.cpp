@@ -5,6 +5,7 @@
 #include "SettingsDialog.h"
 #include "Strings.h"
 #include "Version.h"
+#include "BasketStore.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -40,7 +41,7 @@ struct DlgData {
 static int GetCurrentLangIndex() {
     WCHAR szLang[16] = {};
     DWORD cbData = sizeof(szLang);
-    LSTATUS res = RegGetValueW(HKEY_CURRENT_USER, L"Software\\CopyBasket",
+    LSTATUS res = RegGetValueW(HKEY_CURRENT_USER, BasketStore::REG_KEY,
                                 L"Language", RRF_RT_REG_SZ, NULL, szLang, &cbData);
     if (res == ERROR_SUCCESS && _wcsicmp(szLang, L"en") == 0) {
         return 1;

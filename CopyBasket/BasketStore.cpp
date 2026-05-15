@@ -4,6 +4,8 @@
 
 namespace BasketStore {
 
+const wchar_t* const REG_KEY = L"Software\\CopyBasket";
+
 std::wstring GetBasketDirPath() {
     WCHAR szAppData[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szAppData))) {
