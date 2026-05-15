@@ -111,10 +111,24 @@ static void SaveDialogState(HWND hwnd, DlgData* dd) {
     }
 }
 
-static int GetSysIconIndex(const std::wstring& path) {
+// Returns the system image-list icon index for a path. If the file no longer
+// exists, falls back to extension-/attribute-based lookup so removed entries
+// still render with a reasonable icon. attrHint avoids a duplicate
+// GetFileAttributesW call when the caller already has it.
+static int GetSysIconIndex(const std::wstring& path,
+                           DWORD attrHint = INVALID_FILE_ATTRIBUTES) {
     SHFILEINFOW sfi = {};
     if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
                        SHGFI_SYSICONINDEX | SHGFI_SMALLICON)) {
+        return sfi.iIcon;
+    }
+    DWORD attr = (attrHint != INVALID_FILE_ATTRIBUTES) ? attrHint
+                                                       : GetFileAttributesW(path.c_str());
+    DWORD fallbackAttr = (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+                             ? FILE_ATTRIBUTE_DIRECTORY
+                             : FILE_ATTRIBUTE_NORMAL;
+    if (SHGetFileInfoW(path.c_str(), fallbackAttr, &sfi, sizeof(sfi),
+                       SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)) {
         return sfi.iIcon;
     }
     return 0;
@@ -228,24 +242,12 @@ static void PopulateListView(HWND hList, const std::vector<std::wstring>& files)
             typeText = S.DlgTypeFolder;
         }
 
-        // Query the system icon index for this path (matches Explorer's icon).
-        // Falls back to extension-based lookup if the file no longer exists.
-        SHFILEINFOW sfi = {};
-        if (!SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi),
-                            SHGFI_SYSICONINDEX | SHGFI_SMALLICON)) {
-            DWORD fallbackAttr = (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
-                                     ? FILE_ATTRIBUTE_DIRECTORY
-                                     : FILE_ATTRIBUTE_NORMAL;
-            SHGetFileInfoW(path.c_str(), fallbackAttr, &sfi, sizeof(sfi),
-                           SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
-        }
-
         LVITEMW lvi = {};
         lvi.mask = LVIF_TEXT | LVIF_IMAGE;
         lvi.iItem = i;
         lvi.iSubItem = 0;
         lvi.pszText = (LPWSTR)name.c_str();
-        lvi.iImage = sfi.iIcon;
+        lvi.iImage = GetSysIconIndex(path, attr);
         ListView_InsertItem(hList, &lvi);
 
         ListView_SetItemText(hList, i, 1, (LPWSTR)typeText);
