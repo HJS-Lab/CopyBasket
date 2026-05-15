@@ -17,8 +17,13 @@ static const wchar_t* MUTEX_NAME = L"CopyBasketContextMenuMutex";
 // DLL filename (located in same directory as EXE)
 static const wchar_t* DLL_NAME = L"CopyBasket.dll";
 
-// Registry path to check if DLL is registered
-static const wchar_t* REG_PATH = L"SOFTWARE\\Classes\\*\\shellex\\ContextMenuHandlers\\CopyBasket";
+// All three shell-registration subkeys the DLL writes during DllRegisterServer.
+// Mirrors SHELLEX_KEYS[] in the main project's CopyBasket.cpp — keep in sync.
+static const wchar_t* const REG_PATHS[] = {
+    L"SOFTWARE\\Classes\\*\\shellex\\ContextMenuHandlers\\CopyBasket",
+    L"SOFTWARE\\Classes\\Directory\\shellex\\ContextMenuHandlers\\CopyBasket",
+    L"SOFTWARE\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\CopyBasket",
+};
 
 // User settings registry key (HKCU). Mirrors BasketStore::REG_KEY in the main project;
 // duplicated because CB-CMT does not link against BasketStore.
@@ -36,17 +41,19 @@ static const wchar_t* MSG_DEACTIVATED      = L"CopyBasket Context Menu deactivat
 static const wchar_t* TITLE_SUCCESS        = L"Success";
 static const wchar_t* TITLE_ERROR          = L"Error";
 
-// Check if the CopyBasket context menu handler is registered
-static BOOL IsCopyBasketRegistered()
+// Check whether ALL shell-registration subkeys exist. A partial registration
+// (e.g. after a failed uninstall) counts as "not fully registered" so the
+// dialog defaults to Activate, letting the user complete the registration.
+static BOOL IsCopyBasketFullyRegistered()
 {
-    HKEY hKey;
-    LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, REG_PATH, 0, KEY_READ, &hKey);
-    if (result == ERROR_SUCCESS)
+    for (size_t i = 0; i < ARRAYSIZE(REG_PATHS); ++i)
     {
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, REG_PATHS[i], 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+            return FALSE;
         RegCloseKey(hKey);
-        return TRUE;
     }
-    return FALSE;
+    return TRUE;
 }
 
 // Delete CopyBasket user settings (registry + %APPDATA%\CopyBasket folder)
@@ -157,16 +164,16 @@ static void OnOkClicked(HWND hDlg)
         return;
     }
 
-    if (exitCode == 0)
+    if (exitCode != 0)
     {
-        MessageBoxW(hDlg, activate ? MSG_ACTIVATED : MSG_DEACTIVATED,
-            TITLE_SUCCESS, MB_OK | MB_ICONINFORMATION);
-    }
-    else
-    {
+        // Stay in the dialog so the user can adjust and retry — consistent
+        // with the DLL-not-found and launch-failure paths above.
         MessageBoxW(hDlg, MSG_OP_FAILED, TITLE_ERROR, MB_OK | MB_ICONERROR);
+        return;
     }
 
+    MessageBoxW(hDlg, activate ? MSG_ACTIVATED : MSG_DEACTIVATED,
+        TITLE_SUCCESS, MB_OK | MB_ICONINFORMATION);
     EndDialog(hDlg, IDOK);
 }
 
@@ -184,7 +191,7 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         // Select based on current registration status
         CheckRadioButton(hDlg, IDC_RADIO_ACTIVATE, IDC_RADIO_DEACTIVATE,
-            IsCopyBasketRegistered() ? IDC_RADIO_DEACTIVATE : IDC_RADIO_ACTIVATE);
+            IsCopyBasketFullyRegistered() ? IDC_RADIO_DEACTIVATE : IDC_RADIO_ACTIVATE);
 
         // Set warning text (hidden by default)
         SetDlgItemTextW(hDlg, IDC_WARNING_TEXT, MSG_WARNING_TEXT);
