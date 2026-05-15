@@ -260,6 +260,31 @@ STDMETHODIMP CShellExt::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmd
 }
 
 //---------------------------------------------------------------------------
+// HandleFileOp — shared dispatch for CMD_COPY_HERE/CMD_COPY_TO/CMD_MOVE_HERE/CMD_MOVE_TO
+//---------------------------------------------------------------------------
+void CShellExt::HandleFileOp(LPCMINVOKECOMMANDINFO lpcmi, bool isCopy, bool toPicker) {
+    std::vector<std::wstring> files = BasketStore::ReadBasket();
+    bool fromBasket = !files.empty();
+
+    // Picker variants fall back to the current selection when the basket is empty.
+    if (toPicker && files.empty()) files = GetSelectedFiles();
+    if (files.empty()) return;
+
+    std::wstring folder;
+    if (toPicker) {
+        if (!FileOps::BrowseForFolder(lpcmi->hwnd, folder)) return;
+    } else {
+        if (m_szFolder[0] == L'\0') return;
+        folder = m_szFolder;
+    }
+
+    if (isCopy)
+        FileOps::CopyFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
+    else
+        FileOps::MoveFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
+}
+
+//---------------------------------------------------------------------------
 // IContextMenu::InvokeCommand
 //---------------------------------------------------------------------------
 STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
@@ -306,47 +331,10 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
         break;
     }
 
-    case CMD_COPY_HERE: {
-        std::vector<std::wstring> files = BasketStore::ReadBasket();
-        if (!files.empty() && m_szFolder[0] != L'\0') {
-            FileOps::CopyFilesToFolderAsync(files, m_szFolder, true, lpcmi->hwnd);
-        }
-        break;
-    }
-
-    case CMD_COPY_TO: {
-        std::vector<std::wstring> files = BasketStore::ReadBasket();
-        bool fromBasket = !files.empty();
-        if (files.empty()) files = GetSelectedFiles();
-        if (!files.empty()) {
-            std::wstring folder;
-            if (FileOps::BrowseForFolder(lpcmi->hwnd, folder)) {
-                FileOps::CopyFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
-            }
-        }
-        break;
-    }
-
-    case CMD_MOVE_HERE: {
-        std::vector<std::wstring> files = BasketStore::ReadBasket();
-        if (!files.empty() && m_szFolder[0] != L'\0') {
-            FileOps::MoveFilesToFolderAsync(files, m_szFolder, true, lpcmi->hwnd);
-        }
-        break;
-    }
-
-    case CMD_MOVE_TO: {
-        std::vector<std::wstring> files = BasketStore::ReadBasket();
-        bool fromBasket = !files.empty();
-        if (files.empty()) files = GetSelectedFiles();
-        if (!files.empty()) {
-            std::wstring folder;
-            if (FileOps::BrowseForFolder(lpcmi->hwnd, folder)) {
-                FileOps::MoveFilesToFolderAsync(files, folder, fromBasket, lpcmi->hwnd);
-            }
-        }
-        break;
-    }
+    case CMD_COPY_HERE: HandleFileOp(lpcmi, /*isCopy*/ true,  /*toPicker*/ false); break;
+    case CMD_COPY_TO:   HandleFileOp(lpcmi, /*isCopy*/ true,  /*toPicker*/ true);  break;
+    case CMD_MOVE_HERE: HandleFileOp(lpcmi, /*isCopy*/ false, /*toPicker*/ false); break;
+    case CMD_MOVE_TO:   HandleFileOp(lpcmi, /*isCopy*/ false, /*toPicker*/ true);  break;
 
     case CMD_CLEAR:
         BasketStore::ClearBasket();

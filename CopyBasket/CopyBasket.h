@@ -72,5 +72,9 @@ public:
 private:
     std::vector<std::wstring> GetSelectedFiles();
     static HBITMAP IconToBitmap(HICON hIcon, int cx, int cy);
+
+    // Shared dispatch for the four file-operation context-menu commands.
+    // isCopy=false → move; toPicker=false → use m_szFolder, toPicker=true → ask user.
+    void HandleFileOp(LPCMINVOKECOMMANDINFO lpcmi, bool isCopy, bool toPicker);
 };
 typedef CShellExt* LPCSHELLEXT;
