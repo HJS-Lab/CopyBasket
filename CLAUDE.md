@@ -30,9 +30,9 @@ regsvr32 /u x64\Release\CopyBasket.dll
 - **CLSID:** {F2D8A4E6-3B7C-4D1E-9F5A-8C6E2A4B0D12} (GUID.h)
 - **Korb-Speicher:** `%APPDATA%\CopyBasket\basket.txt` (UTF-16LE mit BOM)
 - **Incident-Log:** `%APPDATA%\CopyBasket\operations.log` (UTF-16LE mit BOM, **ueberschrieben** pro Incident)
-- **Dateioperationen:** IFileOperation + CFileOperationProgressSink (nicht-blockierend via Hintergrund-Thread, Korb-Entfernung gesammelt in FinishOperations). Bei Abbruch/Teilfehler wird via Pre-Scan/Post-Check ein Log geschrieben und TaskDialog angezeigt. `IFileOperation::SetOwnerWindow(lpcmi->hwnd)` und `TASKDIALOGCONFIG::hwndParent` werden gesetzt, damit Konflikt-/Abort-Dialoge nicht hinter dem Explorer verschwinden (relevant insbesondere fuer Cross-Volume-MOVE)
+- **Dateioperationen:** `IFileOperation` async auf Hintergrund-Thread; Incident-Log + TaskDialog bei Abbruch/Teilfehler; alle Dialoge am Explorer-Hwnd verankert
 - **Thread-Sicherheit:** `g_cRef` als `volatile LONG` mit `InterlockedIncrement/Decrement`
-- **Datei-Erkennung:** Primaer CF_HDROP, Fallback via `SHCreateShellItemArrayFromDataObject` (fuer Navigationsbereich, virtuelle Ordner etc.) mit `SFGAO_FOLDER`-Pruefung fuer korrekte Ordner-Ziel-Erkennung
+- **Datei-Erkennung:** CF_HDROP primaer, Fallback via `SHCreateShellItemArrayFromDataObject` (Navigationsbereich, virtuelle Ordner) mit `SFGAO_FOLDER`-Pruefung
 
 ## Quelldateien
 
@@ -83,120 +83,76 @@ Items sind grayed wenn der Korb leer ist. "Zum Korb hinzufuegen" und "Pfad kopie
 
 "Kopieren nach..." und "Verschieben nach..." sind auch bei leerem Korb aktiv, wenn Dateien/Ordner selektiert sind — operieren dann direkt auf der Auswahl statt auf dem Korb.
 
-Alle Dateioperationen (Kopieren/Verschieben) laufen nicht-blockierend auf einem Hintergrund-Thread (`_beginthreadex`) via `IFileOperation`. Erfolgreich verarbeitete Dateien werden via `CFileOperationProgressSink::PostCopyItem`/`PostMoveItem` in einer `m_processed`-Liste gesammelt. In `FinishOperations` wird der Korb **frisch von Platte gelesen**, die verarbeiteten Items abgezogen, und das Ergebnis zurueckgeschrieben — so bleiben waehrend der Operation hinzugefuegte Eintraege erhalten (Race-Condition-sicher). Bei Abbruch oder Fehler bleiben nur die noch nicht verarbeiteten Dateien im Korb. Bei Fallback auf selektierte Dateien (leerer Korb) wird der Korb nicht angefasst.
+Erfolgreich verarbeitete Dateien werden im Sink (`PostCopyItem`/`PostMoveItem`) gesammelt; `FinishOperations` liest den Korb **frisch von Platte**, zieht verarbeitete Items ab und schreibt zurueck — Race-Condition-sicher, waehrend der Operation hinzugefuegte Eintraege bleiben erhalten. Bei Selektion-Fallback (leerer Korb) wird der Korb nicht angefasst.
 
 ### Ordner-Ziel bei "hierher"-Befehlen
 
-Rechtsklick auf einen einzelnen Ordner: `m_szFolder` wird in `Initialize()` auf den angeklickten Ordner gesetzt (nicht auf das uebergeordnete Verzeichnis). Bei Rechtsklick auf Dateien oder mehrere Elemente bleibt `m_szFolder` das aktuelle Verzeichnis (Elternordner). Die IShellItemArray-Fallback-Logik (Navigationsbereich, virtuelle Ordner etc.) spiegelt dieselbe Logik: Elternverzeichnis aus erstem Item extrahieren, nur bei einzelnem Ordner (`SFGAO_FOLDER`-Pruefung) auf den angeklickten Ordner ueberschreiben.
+`m_szFolder` ist standardmaessig das Elternverzeichnis. **Sonderfall:** Rechtsklick auf einen einzelnen Ordner → `m_szFolder` zeigt auf den angeklickten Ordner selbst. Beides gilt sowohl fuer den CF_HDROP-Pfad als auch fuer den IShellItemArray-Fallback (`SFGAO_FOLDER`-Pruefung).
 
 ### BrowseForFolder Guard
 
-"Kopieren nach..." und "Verschieben nach..." verwenden `BrowseForFolder()` mit Re-Entrance-Guard:
-- **InterlockedCompareExchange** verhindert gleichzeitige Dialog-Oeffnungen (Re-Entrance waehrend modaler Messagepump)
-- **Zeitfenster (500ms)** verhindert sequentielle Mehrfach-Oeffnungen (Explorer ruft InvokeCommand ggf. pro selektiertem Item auf)
-- Erster Aufruf erhaelt alle Dateien via HDROP, nachfolgende werden unterdrueckt
+`BrowseForFolder()` (fuer "Kopieren nach..." / "Verschieben nach...") schuetzt gegen Mehrfach-Oeffnung: `InterlockedCompareExchange` blockiert Re-Entrance waehrend modaler Messagepump, ein 500ms-Zeitfenster (`BROWSE_THROTTLE_MS`) blockiert sequentielle Aufrufe (Explorer ruft InvokeCommand ggf. pro Selektion auf). Erster Aufruf bekommt alle Dateien via HDROP.
 
 ### Menu-Icon
 
-Das Hauptmenu-Item "CopyBasket" zeigt ein eigenes Icon:
-- **Resource:** `Res\basket.ico` eingebunden als `IDI_BASKET` (resource.h), geladen via `LoadImageW(g_hModule, ...)`
-- **Konvertierung:** Hilfsfunktion `IconToBitmap()` wandelt HICON in 32-Bit-ARGB-HBITMAP (fuer Transparenz)
-- **Groesse:** Systemmetriken `SM_CXSMICON`/`SM_CYSMICON` fuer konsistente Darstellung
-- **Zuweisung:** Via `MENUITEMINFOW` mit `MIIM_BITMAP`-Flag und `hbmpItem` in `QueryContextMenu`
-- **Lebenszyklus:** Bitmap wird im Konstruktor erstellt (`m_hMenuBitmap`) und im Destruktor mit `DeleteObject` freigegeben
+`IDI_BASKET` (`Res\basket.ico`) via `IconToBitmap()` in 32-Bit-ARGB-HBITMAP konvertiert (Transparenz), in `QueryContextMenu` per `MENUITEMINFOW`/`MIIM_BITMAP` zugewiesen. Lebenszyklus: `CShellExt::m_hMenuBitmap`, im Destruktor freigegeben.
 
 ### Korb-Dialog
 
-- **Nicht-modal:** Explorer bleibt bedienbar waehrend der Dialog offen ist
-- **Auto-Close:** Dialog schliesst sich bei Fokusverlust (WM_ACTIVATE/WA_INACTIVE)
-- **Fenster-Style:** Resizable, kein Minimize/Maximize (`WS_OVERLAPPEDWINDOW & ~(WS_MINIMIZEBOX | WS_MAXIMIZEBOX)`)
-- **Layout:** Obere Haelfte ListView, darunter Splitter, darunter TreeView (Detail-Panel), darunter Buttons + Statusbar. `LayoutControls()` verwendet `BeginDeferWindowPos`/`DeferWindowPos`/`EndDeferWindowPos` fuer atomares Repositionieren aller Child-Controls
-- **Icon:** Basket-Icon in Titelleiste via `WM_SETICON` (ICON_SMALL + ICON_BIG, `LR_SHARED`)
-- **Persistenz:** Fenstergroesse, Spaltenbreiten und Splitter-Position in Registry (`HKCU\Software\CopyBasket\DialogWidth/Height/ColWidth0/ColWidth1/ColWidth2/SplitRatio`)
-- **ListView-Spalten:** 0=Dateiname, 1=Typ ("Datei"/"Verzeichnis" via `GetFileAttributesW`), 2=voller Pfad
-- **System-Icons:** Shared Windows-Image-List via `SHGetFileInfoW(SHGFI_SYSICONINDEX | SHGFI_SMALLICON)` einmalig in WM_CREATE geholt, an ListView (`LVSIL_SMALL`) und TreeView (`TVSIL_NORMAL`) gehaengt. Pro Eintrag wird der Icon-Index gesetzt — Ordner, .txt, .exe usw. zeigen die echten Explorer-Icons. Keine Cleanup-Arbeiten (System-Image-List gehoert der Shell)
-- **Spalten-Sortierung:** Klick auf Spaltenueberschrift sortiert alphabetisch (case-insensitive via `_wcsicmp`), erneuter Klick kehrt Richtung um. Sortier-Pfeil im Header via `HDF_SORTUP`/`HDF_SORTDOWN` (natives Windows-Theme). Implementiert mit `ListView_SortItemsEx` und `LVN_COLUMNCLICK`
-- **Strg+A:** Selektiert alle Eintraege im ListView (via `LVN_KEYDOWN` + `ListView_SetItemState` mit Index -1)
-- **Initialer Fokus:** ListView erhaelt beim Oeffnen sofort den Fokus (`SetFocus` nach `ShowWindow`), sodass Tastaturkuerzel (Strg+A, Entf) direkt nutzbar sind
-- **Statusbar:** Native Windows-Statusbar (`STATUSCLASSNAMEW`) am unteren Fensterrand mit `SBARS_SIZEGRIP`. Zeigt Dateianzahl im Korb (z.B. "5 Dateien" / "5 files"). Aktualisiert sich automatisch beim Entfernen von Eintraegen. Layout wird in `LayoutControls()` beruecksichtigt (Statusbar-Hoehe von verfuegbarer Flaeche abgezogen)
-- **Drag&Drop:** Dialog akzeptiert Datei-/Ordner-Drops aus dem Explorer via `DragAcceptFiles(hwnd, TRUE)` (einmalig in `WM_CREATE`). `WM_DROPFILES`-Handler extrahiert Pfade via `DragQueryFileW`, uebergibt sie an `BasketStore::AddFiles` (Duplikat-Pruefung dort) und ruft `RefreshFromDisk(dd)` fuer die UI-Aktualisierung. Zusammenspiel mit Auto-Close: waehrend eines Drags bleibt der Dialog offen, da der Drop-Target-Status nicht als WA_INACTIVE zaehlt
+- **Nicht-modal**, schliesst sich bei Fokusverlust (`WM_ACTIVATE/WA_INACTIVE`). Resizable, kein Min/Max
+- **Layout:** ListView | Splitter | TreeView | Buttons + Statusbar (`BeginDeferWindowPos`)
+- **Persistenz:** Fenstergroesse, 3 Spaltenbreiten, Splitter-Position in `HKCU\Software\CopyBasket\` (`DialogWidth/Height`, `ColWidth0..2`, `SplitRatio`)
+- **ListView-Spalten:** 0=Dateiname, 1=Typ ("Datei"/"Verzeichnis"), 2=voller Pfad. Spalten-Sortierung via `LVN_COLUMNCLICK` + `ListView_SortItemsEx` mit nativen Sortier-Pfeilen (`HDF_SORTUP`/`HDF_SORTDOWN`)
+- **System-Icons:** Shared Shell-Image-List einmalig in `WM_CREATE` an ListView (`LVSIL_SMALL`) + TreeView (`TVSIL_NORMAL`). Kein Cleanup (Image-List gehoert der Shell)
+- **Tastatur:** Strg+A selektiert alles; ListView erhaelt initialen Fokus, damit Tastaturkuerzel sofort wirken
+- **Drag&Drop:** `DragAcceptFiles` + `WM_DROPFILES` → `BasketStore::AddFiles` (Duplikat-Pruefung) + `RefreshFromDisk`. Drop-Target-Status zaehlt nicht als `WA_INACTIVE`, der Dialog bleibt also waehrend des Drags offen
 
 #### TreeView-Detail-Panel
 
-- **Zweck:** Bei Auswahl eines Verzeichnis-Eintrags in der ListView zeigt die TreeView dessen kompletten Inhalt rekursiv (inkl. Unterverzeichnisse)
-- **Read-Only:** TreeView ist reine Leseansicht. `TVN_SELCHANGINGW` wird abgefangen und gibt `TRUE` zurueck → keine Selektion moeglich. Remove-Button wirkt ausschliesslich auf ListView
-- **Populate:** `AddTreeNodes()` rekursiv via `FindFirstFileW`/`FindNextFileW`, Verzeichnisse zuerst, dann Dateien (stabile Sortierung). Jeder Knoten bekommt Icon via `GetSysIconIndex()` (`SHGetFileInfoW`)
-- **Update-Trigger:** `UpdateTreeForSelection()` wird bei `LVN_ITEMCHANGED` (LVIS_SELECTED/LVIS_FOCUSED), Remove und Delete-Key aufgerufen. Speichert letzten Pfad (`lastTreePath`) um redundantes Neupopulieren bei identischem Pfad zu vermeiden
-- **Flicker-Schutz:** `SendMessage(hTree, WM_SETREDRAW, FALSE/TRUE, 0)` um das Populieren
-- **Keine Auswahl → leer:** Bei keinem oder File-Eintrag zeigt die TreeView nichts
+- **Zweck:** Bei Auswahl eines Ordner-Eintrags im ListView zeigt der TreeView dessen rekursiven Inhalt. Bei Datei-Auswahl oder keiner Auswahl: leer
+- **Read-Only:** `TVN_SELCHANGINGW` wird abgefangen (return `TRUE`) → keine Selektion. Remove-Button wirkt nur auf ListView
+- **Populate:** `AddTreeNodes()` rekursiv (`FindFirstFileW`/`FindNextFileW`); Verzeichnisse zuerst, dann Dateien (stabile Sortierung); Icons via `GetSysIconIndex()`. Flicker-Schutz: `WM_SETREDRAW` FALSE/TRUE um den Populate-Block
+- **Update-Trigger:** `UpdateTreeForSelection()` bei `LVN_ITEMCHANGED` (SELECTED/FOCUSED), Remove und Entf-Taste. Cached letzten Pfad in `lastTreePath`, um redundantes Neupopulieren zu vermeiden
 
 #### Splitter zwischen ListView und TreeView
 
-- **Eigene Window-Klasse** `CopyBasketSplitter` (registriert in `Show()`, `UnregisterClassW` beim Ende) mit `IDC_SIZENS`-Cursor und `COLOR_BTNFACE`-Background
-- **Drag-Logik in `SplitterWndProc`:**
-  - `WM_LBUTTONDOWN` → `SetCapture(hwnd)`
-  - `WM_MOUSEMOVE` mit aktiver Capture → konvertiert Splitter-local zu Parent-Client-Koordinaten, berechnet neue Ratio, ruft `LayoutControls()` auf Parent
-  - `WM_LBUTTONUP` → `ReleaseCapture()`
-- **Ratio-Clamping:** 10–90% mit `MIN_PANE_H = 60` Pixel Mindesthoehe pro Pane
-- **Persistenz:** `splitRatioPct` (int, 10–90) wird in Registry als `SplitRatio` gespeichert
+- **Eigene Window-Klasse** `CopyBasketSplitter` (`IDC_SIZENS`, `COLOR_BTNFACE`)
+- **Drag** via Standard-Mouse-Capture in `SplitterWndProc`; konvertiert Mausposition zu Parent-Koordinaten und ruft `LayoutControls()`
+- **Ratio:** clampt auf 10–90% (`MIN_PANE_H = 60`), persistiert in Registry als `SplitRatio`
 
 ### Incident-Log bei Abbruch/Teilfehler
 
-Bei Abbruch oder fehlgeschlagenen Dateioperationen (insbesondere beim Verschieben verschachtelter Verzeichnisse ueber Laufwerksgrenzen) wird ein Log geschrieben und ein Dialog gezeigt. Ziel: Der User sieht exakt, welche Dateien tatsaechlich verarbeitet wurden und welche nicht — auch fuer Dateien in Unterverzeichnissen.
+Ziel: User sieht exakt, welche Dateien tatsaechlich verarbeitet wurden — auch fuer Dateien in Unterverzeichnissen.
 
-- **Strategie:** Pre-Scan + Post-Check statt Verlassen auf IFileOperation-Callbacks
-  - **Pre-Scan:** `BuildExpectedFiles()` + `EnumerateFilesRecursive()` enumeriert rekursiv alle Quelldateien mit berechnetem Ziel-Pfad (`struct ExpectedFile { sourcePath; destPath; }`)
-  - **Operation:** `IFileOperation::PerformOperations()` wie gehabt
-  - **Post-Check:** Nach `GetAnyOperationsAborted()` wird jede erwartete Datei via `GetFileAttributesW` geprueft — fuer MOVE gilt eine Datei als erfolgreich, wenn Quelle weg und Ziel existiert; fuer COPY wenn Ziel existiert
+- **Strategie:** Pre-Scan + Post-Check via Filesystem statt Verlassen auf `IFileOperation`-Callbacks (Callbacks sind bei tief verschachtelten Verzeichnissen ueber Laufwerksgrenzen nicht zuverlaessig)
+  - Pre-Scan: `BuildExpectedFiles()` + `EnumerateFilesRecursive()` → `ExpectedFile { sourcePath; destPath; }`
+  - Post-Check: `ClassifyOutcome` prueft jede erwartete Datei via `GetFileAttributesW`. MOVE: erfolgreich wenn Quelle weg und Ziel existiert. COPY: erfolgreich wenn Ziel existiert
 - **Trigger:** `fAborted || !notProcessed.empty()`
-- **Owner-Window:** `lpcmi->hwnd` aus `InvokeCommand` wird via `FileOpParams::hwndOwner` durch den Hintergrund-Thread bis in `ExecuteFileOpCOM` gereicht. Dort:
-  - `IFileOperation::SetOwnerWindow(hwndOwner)` — verankert Konflikt-/UAC-/Replace-Skip-Dialoge von Windows am Explorer-Fenster, damit sie nicht hinter Fenstern verschwinden (insb. bei Cross-Volume-MOVE mit Konflikten)
-  - `TASKDIALOGCONFIG::hwndParent = hwndOwner` (mit `IsWindow()`-Check, Fallback auf `GetForegroundWindow()` falls Hwnd zwischenzeitlich invalid) plus `TDF_POSITION_RELATIVE_TO_WINDOW` — Abort-Dialog erscheint immer im Vordergrund relativ zum Explorer
-- **Log-Datei:** `%APPDATA%\CopyBasket\operations.log` (UTF-16LE mit BOM, `CREATE_ALWAYS` → wird pro Incident ueberschrieben, keine History)
-  - Inhalt: Zeitstempel, Operationstyp (KOPIEREN/VERSCHIEBEN), Zielordner, Liste "Erfolgreich:" + "Fehlgeschlagen:" + Status (ABGEBROCHEN falls zutreffend)
-  - i18n Log-Strings via `StringTable`: `LogOpCopy`, `LogOpMove`, `LogTarget`, `LogAborted`, `LogSucceeded`, `LogFailed`
-- **Abort-Dialog:** `TaskDialogIndirect` (Vista+, via `comctl32.lib`)
-  - Inhalt: "%d von %d Dateien wurden nicht verarbeitet. Details wurden protokolliert."
-  - Buttons: **"Log oeffnen"** (oeffnet Log-Datei via `ShellExecuteW`) und **"Schliessen"**
-  - Default-Button: "Schliessen"
-  - Icon: `TD_WARNING_ICON`
-  - i18n Dialog-Strings via `StringTable`: `AbortTitle`, `AbortMsgFmt`, `AbortBtnOpenLog`, `AbortBtnClose`
-- **CFileOperationProgressSink:** bleibt minimal — nur das urspruengliche Korb-Tracking. Das Logging passiert vollstaendig in `ExecuteFileOpCOM` per Filesystem-Check, damit es unabhaengig vom Callback-Verhalten zuverlaessig funktioniert
+- **Owner-Window:** `lpcmi->hwnd` wird via `FileOpParams::hwndOwner` durch den Hintergrund-Thread bis in `ExecuteFileOpCOM` gereicht. `SetOwnerWindow(hwndOwner)` und `TASKDIALOGCONFIG::hwndParent` (mit `IsWindow()`-Check + `GetForegroundWindow()`-Fallback, `TDF_POSITION_RELATIVE_TO_WINDOW`) — Dialoge verankert am Explorer
+- **Log-Datei:** `%APPDATA%\CopyBasket\operations.log` (UTF-16LE+BOM, `CREATE_ALWAYS` — pro Incident ueberschrieben). Inhalt: Zeitstempel, Operationstyp, Zielordner, "Erfolgreich"/"Fehlgeschlagen"-Listen, ggf. "ABGEBROCHEN"
+- **Abort-Dialog:** `TaskDialogIndirect` mit "Log oeffnen" (`ShellExecuteW`) + "Schliessen". Strings via `StringTable` (`AbortTitle`, `AbortMsgFmt`, `LogOp*`, ...)
+- Der `CFileOperationProgressSink` bleibt minimal (nur Korb-Tracking); Logging passiert in `ExecuteFileOpCOM` per Filesystem-Check, unabhaengig vom Callback-Verhalten
 
 ### Einstellungen-Dialog
 
-- **Tab Control:** Zwei Registerkarten (Sprache / \u00DCber)
-- **Sprache-Tab:** ComboBox mit Deutsch/English, speichert via `SaveLanguageSetting()`
-- **\u00DCber-Tab:** Titel (bold, 3px groesser), klickbarer Website-Link (SysLink/WC_LINK), Copyright
-- **Website-Link:** `hjs.page.gd/cb` — zentriert via `LM_GETIDEALSIZE`, oeffnet Browser via `ShellExecuteW`, schliesst Dialog nach Klick
-- **Bold-Font:** Eigener `LOGFONT` mit `FW_BOLD` + vergroesserter Hoehe (+3px), Freigabe in `WM_DESTROY`
+Tab Control mit zwei Seiten:
+- **Sprache:** ComboBox (Endonyme: Deutsch/English aus `StringTable`), speichert via `SaveLanguageSetting()`
+- **\u00DCber:** Bold-Titel + Website-Link `hjs.page.gd/cb` (`WC_LINK`, oeffnet Browser via `ShellExecuteW` und schliesst Dialog) + Copyright (alles aus `StringTable`)
 
 ## i18n
 
-- **Architektur:** `StringTable`-Struct mit `const wchar_t*`/`const char*`-Membern, zwei statische Instanzen (s_DE/s_EN), globaler Pointer auf aktive Tabelle
-- **Zugriff:** `GetStrings().MemberName` — typ-sicher, Zero-Overhead
-- **Spracheinstellung:** Registry `HKCU\Software\CopyBasket\Language` = `"de"` oder `"en"` (Default: Deutsch)
-- **Laden:** `LoadLanguageSetting()` im CShellExt-Konstruktor
-- **Aendern:** Einstellungen-Dialog → `SaveLanguageSetting()` → sofort wirksam beim naechsten Rechtsklick
+`StringTable`-Struct mit zwei statischen Instanzen (`s_DE`/`s_EN`) und globalem Pointer auf die aktive Tabelle. Zugriff via `GetStrings().MemberName` (typ-sicher, Zero-Overhead). Spracheinstellung in Registry `HKCU\Software\CopyBasket\Language` (`"de"`/`"en"`, Default `de`); `LoadLanguageSetting()` im CShellExt-Konstruktor, `SaveLanguageSetting()` im Einstellungen-Dialog wirkt sofort beim naechsten Rechtsklick.
 
 ## Installer
 
-- **Technologie:** NSIS 3.x (Unicode), Modern UI 2
-- **Skript:** `installer\CopyBasket.nsi`
-- **Architektur-Erkennung:** Automatisch x64/x86 via `x64.nsh` (`${RunningX64}`)
-- **Registrierung:** `regsvr32 /s` wird automatisch beim Installieren ausgefuehrt
-- **Deregistrierung:** `regsvr32 /u /s` wird automatisch beim Deinstallieren ausgefuehrt
-- **FS-Redirection:** `${DisableX64FSRedirection}` fuer korrekten 64-Bit regsvr32-Aufruf aus 32-Bit NSIS
-- **Installationsverzeichnis:** `$PROGRAMFILES64\CopyBasket` (64-Bit) bzw. `$PROGRAMFILES\CopyBasket` (32-Bit)
-- **Version:** Automatisch aus `Version.h` extrahiert via `!searchparse`
-- **Inhalt:** CopyBasket.dll (architektur-passend), basket.ico, Uninstall.exe (kein CB-CMT.exe — nur in Portable-Version)
-- **Deinstallation:** Entfernt Benutzereinstellungen (`HKCU\Software\CopyBasket`) und Benutzerdaten (`%APPDATA%\CopyBasket`)
-- **Add/Remove Programs:** Eintrag unter `HKLM\...\Uninstall\CopyBasket`
-- **Shell-Benachrichtigung:** `SHChangeNotify` nach (De-)Registrierung
-- **Sprachen:** Deutsch + Englisch
+- **NSIS 3.x** (Unicode, Modern UI 2), Skript: `installer\CopyBasket.nsi`. Sprachen: Deutsch + Englisch
+- **Architektur:** automatisch x64/x86 via `x64.nsh`; `${DisableX64FSRedirection}` fuer 64-Bit regsvr32-Aufruf aus 32-Bit NSIS
+- **Registrierung:** `regsvr32 /s` beim Installieren, `/u /s` beim Deinstallieren; `SHChangeNotify` nach beiden
+- **Installation:** `$PROGRAMFILES64\CopyBasket` bzw. `$PROGRAMFILES\CopyBasket`. Inhalt: DLL + basket.ico + Uninstall.exe (kein CB-CMT.exe — nur Portable). Eintrag unter `HKLM\...\Uninstall\CopyBasket`
+- **Deinstallation** entfernt `HKCU\Software\CopyBasket` + `%APPDATA%\CopyBasket`
+- **Version:** automatisch aus `Version.h` via `!searchparse`
+- **Build:** nur via GitHub Actions (NSIS lokal nicht verfuegbar), getriggert durch Tag-Push (`git tag vX.Y.Z && git push origin vX.Y.Z`). Workflow installiert NSIS via **scoop** (`scoop bucket add extras`); chocolatey und SourceForge-Direkt-Downloads waren unzuverlaessig
 - **Output:** `build\CopyBasket-X.Y.Z-setup.exe`
-- **Build:** Nur via GitHub Actions (NSIS lokal nicht verfuegbar), getriggert durch Tag-Push (`git tag vX.Y.Z && git push origin vX.Y.Z`)
-- **NSIS-Installation im Workflow:** `.github/workflows/release.yml` installiert NSIS via **scoop** (inkl. `scoop bucket add extras`, da NSIS im extras-Bucket liegt). chocolatey und direkte SourceForge-Downloads waren unzuverlaessig (Cloudflare-Challenge, 503/504), scoop hat eigene Infrastruktur und ist auf GH Actions stabil
 
 ### Release-Assets (GitHub)
 
@@ -213,15 +169,11 @@ Bei Abbruch oder fehlgeschlagenen Dateioperationen (insbesondere beim Verschiebe
 
 ### CB-CMT.exe (CopyBasket Context Menu Tool)
 
-- **Zweck:** GUI-Tool zur manuellen Aktivierung/Deaktivierung der Shell Extension (nur Portable-Version)
-- **Quellcode:** `regsvr Tool\CopyBasketContextMenu\`
-- **Funktionen:**
-  - Radio-Buttons: Activate / Deactivate (Statuserkennung via Registry, Vorauswahl)
-  - Checkbox: "Delete User Settings" — loescht `HKCU\Software\CopyBasket` und `%APPDATA%\CopyBasket\` (ausgegraut wenn kein Schluessel vorhanden)
-  - Warnhinweis bei Checkbox-Aktivierung, Sicherheitsabfrage vor Loeschung
-  - DLL-Existenzpruefung vor regsvr32-Aufruf
-- **Build:** `MSYS_NO_PATHCONV=1 "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/MSBuild.exe" "regsvr Tool/CopyBasketContextMenu.sln" /p:Configuration=Release /p:Platform=x64 /verbosity:minimal`
-- **Output:** `regsvr Tool\bin\Release\CB-CMT.exe`
+GUI-Tool zur manuellen Aktivierung/Deaktivierung der Shell Extension (nur Portable-Version). Quellcode: `regsvr Tool\CopyBasketContextMenu\`, Output: `regsvr Tool\bin\Release\CB-CMT.exe`.
+
+Funktionen: Activate/Deactivate-Radio mit Statuserkennung; optionale Checkbox "Delete User Settings" (`HKCU\Software\CopyBasket` + `%APPDATA%\CopyBasket\`) mit Warnhinweis und Sicherheitsabfrage; DLL-Existenzpruefung vor `regsvr32`.
+
+Build: `MSBuild "regsvr Tool/CopyBasketContextMenu.sln" /p:Configuration=Release /p:Platform=x64`
 
 ## Konventionen
 
