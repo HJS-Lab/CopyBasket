@@ -318,14 +318,12 @@ static LRESULT CALLBACK SplitterWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 GetWindowRect(dd->hStatusBar, &sbRect);
                 sbHeight = sbRect.bottom - sbRect.top;
             }
-            int btnH = 28;
-            int margin = 8;
             int contentH = rc.bottom - sbHeight;
-            int availH = contentH - btnH - 3 * margin - SPLITTER_H;
+            int availH = contentH - BTN_H - 3 * MARGIN - SPLITTER_H;
             if (availH < 2 * MIN_PANE_H) return 0;
 
             // pt.y is where the splitter's top edge should be (in parent coords)
-            int newListH = pt.y - margin;
+            int newListH = pt.y - MARGIN;
             if (newListH < MIN_PANE_H) newListH = MIN_PANE_H;
             if (newListH > availH - MIN_PANE_H) newListH = availH - MIN_PANE_H;
 
