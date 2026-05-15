@@ -3,10 +3,13 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <process.h>
+#include <wrl/client.h>
 #include <cstdio>
 #include "FileOps.h"
 #include "BasketStore.h"
 #include "Strings.h"
+
+using Microsoft::WRL::ComPtr;
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -316,8 +319,9 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
     if (files.empty() || destFolder.empty()) return FALSE;
 
     // ---- Phase 1: COM setup, anchor dialogs, schedule per-file ops ----
-    IFileOperation* pfo = NULL;
-    HRESULT hr = CoCreateInstance(CLSID_FileOperation, NULL, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
+    ComPtr<IFileOperation> pfo;
+    HRESULT hr = CoCreateInstance(CLSID_FileOperation, NULL, CLSCTX_ALL,
+                                  IID_PPV_ARGS(pfo.GetAddressOf()));
     if (FAILED(hr)) return FALSE;
 
     // Anchor any conflict/UAC dialogs to a real window so they cannot
@@ -327,14 +331,12 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
     }
     pfo->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR);
 
-    IShellItem* psiDest = NULL;
-    hr = SHCreateItemFromParsingName(destFolder.c_str(), NULL, IID_PPV_ARGS(&psiDest));
-    if (FAILED(hr)) {
-        pfo->Release();
-        return FALSE;
-    }
+    ComPtr<IShellItem> psiDest;
+    hr = SHCreateItemFromParsingName(destFolder.c_str(), NULL,
+                                     IID_PPV_ARGS(psiDest.GetAddressOf()));
+    if (FAILED(hr)) return FALSE;  // pfo released by ComPtr dtor
 
-    SchedulePerFileOps(pfo, psiDest, wFunc, files);
+    SchedulePerFileOps(pfo.Get(), psiDest.Get(), wFunc, files);
 
     // ---- Phase 2: pre-scan expected outcome, register sink, perform ops ----
     // Pre-scan recursively enumerates all source files so we can verify the
@@ -363,11 +365,10 @@ static BOOL ExecuteFileOpCOM(HWND hwndOwner, UINT wFunc, const std::vector<std::
         }
     }
 
-    // ---- Cleanup ----
+    // ---- Cleanup — pSink is manual because Unadvise must run before Release ----
     pfo->Unadvise(dwCookie);
     pSink->Release();
-    psiDest->Release();
-    pfo->Release();
+    // pfo and psiDest are released by their ComPtr destructors at scope end.
 
     return SUCCEEDED(hr) && !fAborted;
 }
