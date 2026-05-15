@@ -6,6 +6,11 @@ namespace BasketStore {
 
 const wchar_t* const REG_KEY = L"Software\\CopyBasket";
 
+std::wstring ExtractFileName(const std::wstring& fullPath) {
+    size_t pos = fullPath.find_last_of(L"\\/");
+    return (pos != std::wstring::npos) ? fullPath.substr(pos + 1) : fullPath;
+}
+
 std::wstring GetBasketDirPath() {
     WCHAR szAppData[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, szAppData))) {

@@ -13,4 +13,8 @@ namespace BasketStore {
     void WriteBasket(const std::vector<std::wstring>& files);
     void ClearBasket();
     int GetFileCount();
+
+    // Returns the last path component (file or directory name) of a full path.
+    // For paths without separators, returns the input unchanged.
+    std::wstring ExtractFileName(const std::wstring& fullPath);
 }

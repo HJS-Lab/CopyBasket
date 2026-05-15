@@ -131,8 +131,7 @@ static std::vector<ExpectedFile> BuildExpectedFiles(const std::vector<std::wstri
         if (attr == INVALID_FILE_ATTRIBUTES) continue;
 
         // Item destination = destFolder + last path component
-        size_t lastSlash = path.find_last_of(L"\\/");
-        std::wstring name = (lastSlash != std::wstring::npos) ? path.substr(lastSlash + 1) : path;
+        std::wstring name = BasketStore::ExtractFileName(path);
         std::wstring itemDest = destFolder + L"\\" + name;
 
         if (attr & FILE_ATTRIBUTE_DIRECTORY) {

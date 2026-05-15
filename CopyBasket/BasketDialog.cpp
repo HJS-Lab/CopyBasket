@@ -170,11 +170,7 @@ static void PopulateTreeFromPath(HWND hTree, const std::wstring& path) {
     DWORD attr = GetFileAttributesW(path.c_str());
     if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
         // Root node = directory name
-        std::wstring name = path;
-        size_t lastSlash = path.find_last_of(L"\\/");
-        if (lastSlash != std::wstring::npos) {
-            name = path.substr(lastSlash + 1);
-        }
+        std::wstring name = BasketStore::ExtractFileName(path);
 
         int rootIcon = GetSysIconIndex(path);
         TVINSERTSTRUCTW tvi = {};
