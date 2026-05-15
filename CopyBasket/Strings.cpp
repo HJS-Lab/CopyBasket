@@ -55,6 +55,9 @@ static const StringTable s_DE = {
     L"Abbrechen",
     L"Sprache",
     L"\u00DCber",
+    L"Deutsch",
+    L"English",
+    L"\u00A9 2026 HJS (Hans-Joachim Schlingensief)",
 
     // Abort notification dialog
     L"Vorgang abgebrochen",
@@ -126,6 +129,9 @@ static const StringTable s_EN = {
     L"Cancel",
     L"Language",
     L"About",
+    L"Deutsch",
+    L"English",
+    L"\u00A9 2026 HJS (Hans-Joachim Schlingensief)",
 
     // Abort notification dialog
     L"Operation cancelled",

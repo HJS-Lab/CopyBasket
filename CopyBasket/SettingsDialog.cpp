@@ -101,8 +101,8 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             108, 65, 190, 120,
             hwnd, (HMENU)(INT_PTR)IDC_COMBO, GetModuleHandle(NULL), NULL);
         SendMessage(dd->hCombo, WM_SETFONT, (WPARAM)hFont, TRUE);
-        SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)L"Deutsch");
-        SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)L"English");
+        SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)S.SettingsLangNameDe);
+        SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)S.SettingsLangNameEn);
         SendMessageW(dd->hCombo, CB_SETCURSEL, dd->initialSel, 0);
 
         // Bold font for title (1px larger)
@@ -141,7 +141,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         // About page controls — Copyright (centered)
         dd->hCopyright = CreateWindowExW(
             0, L"STATIC",
-            L"\u00A9 2026 HJS (Hans-Joachim Schlingensief)",
+            S.SettingsCopyright,
             WS_CHILD | SS_CENTER,
             24, 96, 272, 20,
             hwnd, (HMENU)(INT_PTR)IDC_COPYRIGHT, GetModuleHandle(NULL), NULL);

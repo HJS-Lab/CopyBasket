@@ -57,6 +57,9 @@ struct StringTable {
     const wchar_t* SettingsCancel;
     const wchar_t* SettingsTabLanguage;
     const wchar_t* SettingsTabAbout;
+    const wchar_t* SettingsLangNameDe;   // endonym: shown identically in both UIs
+    const wchar_t* SettingsLangNameEn;
+    const wchar_t* SettingsCopyright;
 
     // Abort notification dialog
     const wchar_t* AbortTitle;
