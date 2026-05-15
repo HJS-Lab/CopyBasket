@@ -76,7 +76,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          # Per-release write-up lives in release-notes/v<X.Y.Z>.md and
+          # MUST exist before pushing the tag — workflow fails otherwise.
+          body_path: release-notes/${{ github.ref_name }}.md
           files: |
             CopyBasket_${{ github.ref_name }}.zip
             build/CopyBasket-*-setup.exe
