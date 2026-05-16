@@ -143,6 +143,10 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.5.9
+- **Basket dialog TreeView: lazy loading** — the detail panel used to eagerly walk the entire directory subtree of the selected basket entry, which could hang or crash the dialog on deep or cyclic trees (e.g. a profile folder with `Application Data` → `AppData\Roaming` junctions). Each directory node is now inserted with `cChildren=1` and stores its full path on the heap (`lParam`); children are loaded one level at a time on `TVN_ITEMEXPANDINGW`. Reparse points get no expand arrow and are never traversed
+- **Basket dialog TreeView: fix duplicate first-level entries** — selecting a folder showed every direct child twice. `PopulateTreeFromPath` pre-loads level 1 and then calls `TreeView_Expand`, which fires `TVN_ITEMEXPANDINGW` while `TVIS_EXPANDEDONCE` is still clear — the previous guard re-populated and produced duplicates. The lazy-load guard is now `!TreeView_GetChild(...)`, which asks the right question ("does this node already have children?") directly
+
 ### v1.5.8
 - **Release-workflow infrastructure only** — bumped `softprops/action-gh-release` to v3 (native Node 24), pinned the runner to `windows-2025-vs2026` (the redirect target `windows-latest` is moving to by 2026-06-15), and removed the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround which is no longer needed. Binary artifacts are identical to v1.5.7
 

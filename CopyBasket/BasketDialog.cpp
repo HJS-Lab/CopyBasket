@@ -567,13 +567,15 @@ static LRESULT OnNotify(DlgData* dd, NMHDR* nm, LPARAM lParam) {
         if (nm->code == TVN_SELCHANGINGW) {
             return TRUE;
         }
-        // Lazy-load children on first expand. TVIS_EXPANDEDONCE is not yet
-        // set while expanding for the first time; once set, we skip re-
-        // populating (children persist across collapse/expand cycles).
+        // Lazy-load children on first expand. Guard on "no children yet"
+        // rather than TVIS_EXPANDEDONCE: the root is pre-populated by
+        // PopulateTreeFromPath and then expanded, which fires this
+        // notification while TVIS_EXPANDEDONCE is still clear — checking
+        // the flag would re-populate and produce duplicate entries.
         if (nm->code == TVN_ITEMEXPANDINGW) {
             NMTREEVIEWW* ntv = (NMTREEVIEWW*)lParam;
             if (ntv->action == TVE_EXPAND &&
-                !(ntv->itemNew.state & TVIS_EXPANDEDONCE)) {
+                !TreeView_GetChild(nm->hwndFrom, ntv->itemNew.hItem)) {
                 HWND hTree = nm->hwndFrom;
                 HTREEITEM hItem = ntv->itemNew.hItem;
                 std::wstring path = GetTreeItemPath(hTree, hItem);

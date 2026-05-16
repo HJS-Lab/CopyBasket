@@ -70,6 +70,22 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.5.9
+  - Korb-Dialog TreeView: Lazy Loading. Das Detail-Panel läuft nicht
+    mehr eager durch den kompletten Verzeichnisbaum des gewählten
+    Korb-Eintrags — bei tiefen oder zyklischen Bäumen (z.B.
+    Profil-Ordner mit Application-Data-Junctions) konnte das den
+    Dialog hängen lassen oder abstürzen. Kinder werden jetzt beim
+    ersten Aufklappen ebenenweise geladen; Reparse Points bekommen
+    keinen Aufklapp-Pfeil und werden nicht traversiert
+  - Korb-Dialog TreeView: Doppelte Einträge in der ersten Ebene
+    behoben. Beim Auswählen eines Ordners erschien jedes direkte
+    Kind doppelt, weil die eager populierte Wurzel beim Expandieren
+    den Lazy-Load-Handler nochmal triggerte. Die Guard-Bedingung
+    prüft jetzt direkt „hat der Knoten schon Kinder?", statt sich
+    auf das TVIS_EXPANDEDONCE-Flag zu verlassen (das vom System erst
+    *nach* dem ersten Expand gesetzt wird)
+
 v1.5.8
   - Nur Release-Workflow-Infrastruktur: softprops/action-gh-release auf
     v3 angehoben (nativ Node 24), Runner auf windows-2025-vs2026

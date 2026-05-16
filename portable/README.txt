@@ -65,6 +65,20 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.5.9
+  - Basket dialog TreeView: lazy loading. The detail panel no longer
+    walks the entire directory subtree of the selected basket entry,
+    which could hang or crash the dialog on deep or cyclic trees
+    (e.g. profile folder with Application Data junctions). Children
+    are loaded one level at a time on first expand; reparse points
+    get no expand arrow and are never traversed
+  - Basket dialog TreeView: fixed duplicate first-level entries.
+    Selecting a folder showed each direct child twice because the
+    pre-populated root, when expanded, re-ran the lazy-load handler.
+    The guard now checks "does the node already have children?"
+    instead of relying on the TVIS_EXPANDEDONCE flag (which is only
+    set *after* the first expand)
+
 v1.5.8
   - Release-workflow infrastructure only: bumped softprops/action-gh-
     release to v3 (native Node 24), pinned the runner to
