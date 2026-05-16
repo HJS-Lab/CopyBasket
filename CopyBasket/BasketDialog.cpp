@@ -134,44 +134,77 @@ static int GetSysIconIndex(const std::wstring& path,
     return 0;
 }
 
-static void AddTreeNodes(HWND hTree, HTREEITEM hParent, const std::wstring& dir) {
+// Lazy-loading TreeView: each directory node stores its full path on the heap
+// (via lParam) and is inserted with cChildren=1 so the expand arrow shows
+// without a content scan. The actual children are loaded on TVN_ITEMEXPANDINGW
+// (see OnNotify). Reparse points (junctions / symlinks) get a node but no
+// arrow — traversing them can be cyclic (e.g. C:\Users\<name>\Application
+// Data -> AppData\Roaming and back), which would otherwise hang the UI.
+// lParam strings are freed on TVN_DELETEITEMW.
+
+static HTREEITEM InsertTreeNode(HWND hTree, HTREEITEM hParent,
+                                const std::wstring& displayName,
+                                const std::wstring& fullPath,
+                                int icon, bool isDirectory, bool isReparsePoint) {
+    TVINSERTSTRUCTW tvi = {};
+    tvi.hParent = hParent;
+    tvi.hInsertAfter = TVI_LAST;
+    tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM | TVIF_CHILDREN;
+    tvi.item.pszText = (LPWSTR)displayName.c_str();
+    tvi.item.iImage = icon;
+    tvi.item.iSelectedImage = icon;
+    // Show expand arrow only for traversable directories. Files and reparse
+    // points get cChildren=0 (no arrow).
+    bool canExpand = isDirectory && !isReparsePoint;
+    tvi.item.cChildren = canExpand ? 1 : 0;
+    // Store full path on heap so we can recover it on expand without walking
+    // the tree. Freed in TVN_DELETEITEMW handler.
+    tvi.item.lParam = canExpand ? (LPARAM)new std::wstring(fullPath) : 0;
+    return TreeView_InsertItem(hTree, &tvi);
+}
+
+// Populate exactly one level of children under hParent. Directories first
+// (each as a lazy-load node), then files. Safe to call from
+// TVN_ITEMEXPANDINGW — no recursion, no rescan of sub-levels.
+static void PopulateChildren(HWND hTree, HTREEITEM hParent, const std::wstring& dir) {
     std::wstring pattern = dir + L"\\*";
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
 
-    // Collect directories and files separately for stable ordering
-    std::vector<std::wstring> dirs, files;
+    struct DirEntry { std::wstring name; DWORD attrs; };
+    std::vector<DirEntry> dirs;
+    std::vector<std::wstring> files;
     do {
         if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            dirs.push_back(fd.cFileName);
+            dirs.push_back({ fd.cFileName, fd.dwFileAttributes });
         else
             files.push_back(fd.cFileName);
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);
 
-    auto insertChild = [&](const std::wstring& name) -> HTREEITEM {
-        std::wstring childPath = dir + L"\\" + name;
-        int icon = GetSysIconIndex(childPath);
-        TVINSERTSTRUCTW tvi = {};
-        tvi.hParent = hParent;
-        tvi.hInsertAfter = TVI_LAST;
-        tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-        tvi.item.pszText = (LPWSTR)name.c_str();
-        tvi.item.iImage = icon;
-        tvi.item.iSelectedImage = icon;
-        return TreeView_InsertItem(hTree, &tvi);
-    };
-
-    // Directories first (recursive), then files
-    for (const auto& name : dirs) {
-        HTREEITEM hItem = insertChild(name);
-        AddTreeNodes(hTree, hItem, dir + L"\\" + name);
+    for (const auto& d : dirs) {
+        std::wstring childPath = dir + L"\\" + d.name;
+        int icon = GetSysIconIndex(childPath, d.attrs);
+        bool isReparse = (d.attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        InsertTreeNode(hTree, hParent, d.name, childPath, icon, true, isReparse);
     }
     for (const auto& name : files) {
-        insertChild(name);
+        std::wstring childPath = dir + L"\\" + name;
+        int icon = GetSysIconIndex(childPath);
+        InsertTreeNode(hTree, hParent, name, childPath, icon, false, false);
     }
+}
+
+// Retrieve the heap-stored full path for a tree item (empty if not set).
+static std::wstring GetTreeItemPath(HWND hTree, HTREEITEM hItem) {
+    TVITEMW tvi = {};
+    tvi.mask = TVIF_PARAM | TVIF_HANDLE;
+    tvi.hItem = hItem;
+    if (!TreeView_GetItem(hTree, &tvi)) return std::wstring();
+    auto* p = (std::wstring*)tvi.lParam;
+    return p ? *p : std::wstring();
 }
 
 static void PopulateTreeFromPath(HWND hTree, const std::wstring& path) {
@@ -180,21 +213,18 @@ static void PopulateTreeFromPath(HWND hTree, const std::wstring& path) {
 
     DWORD attr = GetFileAttributesW(path.c_str());
     if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
-        // Root node = directory name
         std::wstring name = BasketStore::ExtractFileName(path);
-
-        int rootIcon = GetSysIconIndex(path);
-        TVINSERTSTRUCTW tvi = {};
-        tvi.hParent = TVI_ROOT;
-        tvi.hInsertAfter = TVI_LAST;
-        tvi.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-        tvi.item.pszText = (LPWSTR)name.c_str();
-        tvi.item.iImage = rootIcon;
-        tvi.item.iSelectedImage = rootIcon;
-        HTREEITEM hRoot = TreeView_InsertItem(hTree, &tvi);
-
-        AddTreeNodes(hTree, hRoot, path);
-        TreeView_Expand(hTree, hRoot, TVE_EXPAND);
+        int rootIcon = GetSysIconIndex(path, attr);
+        bool isReparse = (attr & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        HTREEITEM hRoot = InsertTreeNode(hTree, TVI_ROOT, name, path,
+                                          rootIcon, true, isReparse);
+        // Load first level immediately and expand the root, so the user sees
+        // the directory contents without an extra click. Deeper levels load
+        // lazily on TVN_ITEMEXPANDINGW.
+        if (!isReparse) {
+            PopulateChildren(hTree, hRoot, path);
+            TreeView_Expand(hTree, hRoot, TVE_EXPAND);
+        }
     }
 
     SendMessage(hTree, WM_SETREDRAW, TRUE, 0);
@@ -536,6 +566,41 @@ static LRESULT OnNotify(DlgData* dd, NMHDR* nm, LPARAM lParam) {
         // TreeView is a read-only viewer — never allow selection
         if (nm->code == TVN_SELCHANGINGW) {
             return TRUE;
+        }
+        // Lazy-load children on first expand. TVIS_EXPANDEDONCE is not yet
+        // set while expanding for the first time; once set, we skip re-
+        // populating (children persist across collapse/expand cycles).
+        if (nm->code == TVN_ITEMEXPANDINGW) {
+            NMTREEVIEWW* ntv = (NMTREEVIEWW*)lParam;
+            if (ntv->action == TVE_EXPAND &&
+                !(ntv->itemNew.state & TVIS_EXPANDEDONCE)) {
+                HWND hTree = nm->hwndFrom;
+                HTREEITEM hItem = ntv->itemNew.hItem;
+                std::wstring path = GetTreeItemPath(hTree, hItem);
+                if (!path.empty()) {
+                    SendMessage(hTree, WM_SETREDRAW, FALSE, 0);
+                    PopulateChildren(hTree, hItem, path);
+                    // If the directory turned out to be empty, hide the
+                    // expand arrow so the user isn't misled.
+                    if (!TreeView_GetChild(hTree, hItem)) {
+                        TVITEMW tvi = {};
+                        tvi.mask = TVIF_CHILDREN | TVIF_HANDLE;
+                        tvi.hItem = hItem;
+                        tvi.cChildren = 0;
+                        TreeView_SetItem(hTree, &tvi);
+                    }
+                    SendMessage(hTree, WM_SETREDRAW, TRUE, 0);
+                }
+            }
+            return 0;
+        }
+        // Free the heap-allocated path string we attached in InsertTreeNode.
+        if (nm->code == TVN_DELETEITEMW) {
+            NMTREEVIEWW* ntv = (NMTREEVIEWW*)lParam;
+            if (ntv->itemOld.lParam) {
+                delete (std::wstring*)ntv->itemOld.lParam;
+            }
+            return 0;
         }
         return 0;
     }
