@@ -255,6 +255,15 @@ STDMETHODIMP CShellExt::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmd
 // HandleFileOp — shared dispatch for CMD_COPY_HERE/CMD_COPY_TO/CMD_MOVE_HERE/CMD_MOVE_TO
 //---------------------------------------------------------------------------
 void CShellExt::HandleFileOp(LPCMINVOKECOMMANDINFO lpcmi, bool isCopy, bool toPicker) {
+    // Reject early if a previous file op is still running on its background
+    // thread. Without this guard two IFileOperation instances would race on
+    // the same source files and clobber each other's operations.log.
+    if (FileOps::IsBusy()) {
+        const StringTable& S = GetStrings();
+        MessageBoxW(lpcmi->hwnd, S.BusyMsg, S.BusyTitle, MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
     std::vector<std::wstring> files = BasketStore::ReadBasket();
     bool fromBasket = !files.empty();
 

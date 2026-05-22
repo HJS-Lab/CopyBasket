@@ -66,6 +66,11 @@ static const StringTable s_DE = {
     L"Log \u00F6ffnen",
     L"Schlie\u00DFen",
 
+    // Busy notification
+    L"Vorgang l\u00E4uft",
+    L"Eine Kopier- oder Verschiebe-Operation l\u00E4uft bereits. "
+    L"Bitte warten Sie, bis diese abgeschlossen ist, bevor Sie eine neue starten.",
+
     // Operation log
     L"KOPIEREN",
     L"VERSCHIEBEN",
@@ -139,6 +144,11 @@ static const StringTable s_EN = {
     L"%d of %d files were not processed.\nDetails have been logged.",
     L"Open log",
     L"Close",
+
+    // Busy notification
+    L"Operation in progress",
+    L"A copy or move operation is already running. "
+    L"Please wait for it to finish before starting a new one.",
 
     // Operation log
     L"COPY",

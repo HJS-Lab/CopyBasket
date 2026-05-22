@@ -67,6 +67,10 @@ struct StringTable {
     const wchar_t* AbortBtnOpenLog;
     const wchar_t* AbortBtnClose;
 
+    // Busy notification (another file op is still in flight)
+    const wchar_t* BusyTitle;
+    const wchar_t* BusyMsg;
+
     // Operation log
     const wchar_t* LogOpCopy;
     const wchar_t* LogOpMove;

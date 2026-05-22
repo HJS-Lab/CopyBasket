@@ -22,6 +22,18 @@ static const int IDBTN_OPEN_LOG = 1001;
 static const int IDBTN_CLOSE = 1002;
 static const DWORD BROWSE_THROTTLE_MS = 500;
 
+// Single-op-in-flight guard. Two concurrent IFileOperation threads in the same
+// process would race on the same source files and clobber operations.log
+// (CREATE_ALWAYS + exclusive share). Acquired atomically in LaunchFileOp,
+// released by the background thread at exit. Process-local — Explorer's
+// default single-process model makes this sufficient; if a user opens
+// separate-process Explorer windows they each get their own slot.
+static volatile LONG g_fileOpInFlight = 0;
+
+BOOL IsBusy() {
+    return g_fileOpInFlight != 0 ? TRUE : FALSE;
+}
+
 // ---------------------------------------------------------------------------
 // CFileOperationProgressSink — removes files from basket after each success
 // ---------------------------------------------------------------------------
@@ -438,6 +450,10 @@ static unsigned __stdcall FileOpThreadProc(void* pArg) {
 
     CoUninitialize();
     delete params;
+    // Release the in-flight slot before the DLL refcount drop so a follow-up
+    // operation triggered from the abort dialog (closed inside Execute...) is
+    // never falsely rejected as "busy".
+    InterlockedExchange(&g_fileOpInFlight, 0);
     InterlockedDecrement(&g_cRef);
     return 0;
 }
@@ -445,6 +461,11 @@ static unsigned __stdcall FileOpThreadProc(void* pArg) {
 static void LaunchFileOp(HWND hwndOwner, UINT wFunc, const std::vector<std::wstring>& files,
                          const std::wstring& destFolder, bool removeFromBasket) {
     if (files.empty() || destFolder.empty()) return;
+
+    // Atomic claim of the single-op-in-flight slot. HandleFileOp already
+    // checks IsBusy() up front for a friendly message — this is the
+    // race-tight defense if two right-clicks slip through that window.
+    if (InterlockedCompareExchange(&g_fileOpInFlight, 1, 0) != 0) return;
 
     FileOpParams* params = new FileOpParams();
     params->hwndOwner = hwndOwner;
@@ -459,9 +480,10 @@ static void LaunchFileOp(HWND hwndOwner, UINT wFunc, const std::vector<std::wstr
     if (hThread) {
         CloseHandle(hThread);
     } else {
-        // Thread creation failed — clean up
+        // Thread creation failed — clean up, including the slot we just claimed
         delete params;
         InterlockedDecrement(&g_cRef);
+        InterlockedExchange(&g_fileOpInFlight, 0);
     }
 }
 
