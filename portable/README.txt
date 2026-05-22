@@ -65,6 +65,18 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.6.0
+  - Concurrent file-op guard. A second right-click on "Copy/Move basket
+    here" or "Copy/Move to..." while an operation was still running used
+    to start a second IFileOperation thread. Both would race on the same
+    source files and clobber operations.log (opened with CREATE_ALWAYS +
+    exclusive share — either the first incident was overwritten, or the
+    second open silently failed and the abort dialog disappeared). The
+    second click now shows a localized "Operation in progress" message
+    instead. The in-flight slot is claimed atomically in LaunchFileOp
+    and released only when the worker thread fully exits, so the abort
+    dialog must be acknowledged before the next operation can start
+
 v1.5.9
   - Basket dialog TreeView: lazy loading. The detail panel no longer
     walks the entire directory subtree of the selected basket entry,

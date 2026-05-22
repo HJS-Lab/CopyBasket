@@ -70,6 +70,21 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.6.0
+  - Schutz gegen parallele Datei-Operationen. Ein zweiter Rechtsklick
+    auf „Korb hierher kopieren/verschieben" oder „Kopieren/Verschieben
+    nach..." während eine Operation noch lief, startete bisher einen
+    zweiten IFileOperation-Thread. Beide Threads racten dann auf
+    denselben Quelldateien und überschrieben sich gegenseitig die
+    operations.log (geöffnet mit CREATE_ALWAYS + exklusivem Share —
+    entweder der erste Vorfall ging verloren oder das zweite
+    CreateFileW schlug still fehl und der Abbruch-Dialog verschwand).
+    Der zweite Klick zeigt jetzt eine lokalisierte Meldung „Vorgang
+    läuft" statt einen zweiten Job zu starten. Der In-Flight-Slot
+    wird in LaunchFileOp atomar belegt und erst beim vollständigen
+    Thread-Ende freigegeben, sodass ein offener Abbruch-Dialog
+    bestätigt werden muss, bevor die nächste Operation starten kann
+
 v1.5.9
   - Korb-Dialog TreeView: Lazy Loading. Das Detail-Panel läuft nicht
     mehr eager durch den kompletten Verzeichnisbaum des gewählten

@@ -143,6 +143,9 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.6.0
+- **Concurrent file-op guard** — a second right-click on "Copy basket here", "Move basket here", or "Copy/Move to..." while an operation is still running used to launch a second `IFileOperation` thread. Both threads would then race on the same source files and clobber each other's `operations.log` (opened with `CREATE_ALWAYS` + exclusive share — either the first incident was overwritten, or the second `CreateFileW` silently failed and the abort dialog disappeared). `FileOps` now exposes `IsBusy()`; `HandleFileOp` checks it up front and shows a localized "Operation in progress" message instead of starting a second job. The slot is claimed atomically in `LaunchFileOp` (`InterlockedCompareExchange`) as a race-tight defense and released in the thread proc — held across the abort dialog so the user has to acknowledge an incident before queueing the next op
+
 ### v1.5.9
 - **Basket dialog TreeView: lazy loading** — the detail panel used to eagerly walk the entire directory subtree of the selected basket entry, which could hang or crash the dialog on deep or cyclic trees (e.g. a profile folder with `Application Data` → `AppData\Roaming` junctions). Each directory node is now inserted with `cChildren=1` and stores its full path on the heap (`lParam`); children are loaded one level at a time on `TVN_ITEMEXPANDINGW`. Reparse points get no expand arrow and are never traversed
 - **Basket dialog TreeView: fix duplicate first-level entries** — selecting a folder showed every direct child twice. `PopulateTreeFromPath` pre-loads level 1 and then calls `TreeView_Expand`, which fires `TVN_ITEMEXPANDINGW` while `TVIS_EXPANDEDONCE` is still clear — the previous guard re-populated and produced duplicates. The lazy-load guard is now `!TreeView_GetChild(...)`, which asks the right question ("does this node already have children?") directly
