@@ -76,6 +76,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # Release title shown as the page header, e.g. "CopyBasket v1.6.0".
+          # Without this, softprops/action-gh-release uses the bare tag name
+          # ("v1.6.0") — and the per-release .md no longer carries its own
+          # "# CopyBasket vX.Y.Z" heading, so the header is the single title.
+          name: CopyBasket ${{ github.ref_name }}
           # Per-release write-up lives in release-notes/v<X.Y.Z>.md and
           # MUST exist before pushing the tag — workflow fails otherwise.
           body_path: release-notes/${{ github.ref_name }}.md
