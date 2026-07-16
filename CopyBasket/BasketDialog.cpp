@@ -207,6 +207,16 @@ static std::wstring GetTreeItemPath(HWND hTree, HTREEITEM hItem) {
     return p ? *p : std::wstring();
 }
 
+// Retrieve the heap-stored full path for a list item (empty if not set).
+static std::wstring GetListItemPath(HWND hList, int index) {
+    LVITEMW lvi = {};
+    lvi.mask = LVIF_PARAM;
+    lvi.iItem = index;
+    if (!ListView_GetItem(hList, &lvi)) return std::wstring();
+    auto* p = (std::wstring*)lvi.lParam;
+    return p ? *p : std::wstring();
+}
+
 static void PopulateTreeFromPath(HWND hTree, const std::wstring& path) {
     SendMessage(hTree, WM_SETREDRAW, FALSE, 0);
     TreeView_DeleteAllItems(hTree);
@@ -239,9 +249,7 @@ static void UpdateTreeForSelection(DlgData* dd) {
 
     std::wstring path;
     if (sel >= 0) {
-        WCHAR szPath[MAX_PATH] = {};
-        ListView_GetItemText(dd->hList, sel, 2, szPath, MAX_PATH);
-        path = szPath;
+        path = GetListItemPath(dd->hList, sel);
     }
 
     if (path == dd->lastTreePath) return;  // no change → avoid flicker
@@ -267,11 +275,16 @@ static void PopulateListView(HWND hList, const std::vector<std::wstring>& files)
         }
 
         LVITEMW lvi = {};
-        lvi.mask = LVIF_TEXT | LVIF_IMAGE;
+        lvi.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
         lvi.iItem = i;
         lvi.iSubItem = 0;
         lvi.pszText = (LPWSTR)name.c_str();
         lvi.iImage = GetSysIconIndex(path, attr);
+        // Keep the full, untruncated path on the heap in lParam. Column-2 text
+        // is display-only; reading it back through a fixed buffer would clamp
+        // long paths. RemoveSelected / UpdateTree read the real path from here.
+        // Freed in the LVN_DELETEITEM handler.
+        lvi.lParam = (LPARAM)new std::wstring(path);
         ListView_InsertItem(hList, &lvi);
 
         ListView_SetItemText(hList, i, 1, (LPWSTR)typeText);
@@ -294,21 +307,19 @@ static void RefreshFromDisk(DlgData* dd) {
 }
 
 static void RemoveSelected(DlgData* dd) {
-    std::vector<std::wstring> remaining;
-    int count = ListView_GetItemCount(dd->hList);
-
-    for (int i = 0; i < count; i++) {
-        if (ListView_GetItemState(dd->hList, i, LVIS_SELECTED) & LVIS_SELECTED)
-            continue;
-
-        WCHAR szPath[MAX_PATH] = {};
-        ListView_GetItemText(dd->hList, i, 2, szPath, MAX_PATH);
-        if (szPath[0] != L'\0') {
-            remaining.push_back(szPath);
-        }
+    // Collect the selected entries' full paths (from lParam, never truncated)
+    // and remove exactly those via the atomic RemoveFiles API. Rewriting the
+    // whole basket from a UI snapshot (the old WriteBasket path) would drop
+    // entries a concurrent AddFiles added and could persist paths truncated by
+    // a fixed read-back buffer.
+    std::vector<std::wstring> toRemove;
+    int i = -1;
+    while ((i = ListView_GetNextItem(dd->hList, i, LVNI_SELECTED)) >= 0) {
+        std::wstring path = GetListItemPath(dd->hList, i);
+        if (!path.empty()) toRemove.push_back(path);
     }
 
-    BasketStore::WriteBasket(remaining);
+    if (!toRemove.empty()) BasketStore::RemoveFiles(toRemove);
     RefreshFromDisk(dd);
 }
 
@@ -431,7 +442,7 @@ static void LayoutControls(HWND hwnd, DlgData* dd) {
 static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
     dd->hList = CreateWindowExW(
         WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
-        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS,
         0, 0, 0, 0,
         hwnd, (HMENU)(INT_PTR)IDC_LISTVIEW, GetModuleHandle(NULL), NULL);
     ListView_SetExtendedListViewStyle(dd->hList,
@@ -488,13 +499,13 @@ static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
 
     dd->hBtnRemove = CreateWindowExW(
         0, L"BUTTON", GetStrings().DlgBtnRemove,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         0, 0, 0, 0,
         hwnd, (HMENU)(INT_PTR)IDC_REMOVE, GetModuleHandle(NULL), NULL);
 
     dd->hBtnClose = CreateWindowExW(
         0, L"BUTTON", GetStrings().DlgBtnClose,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         0, 0, 0, 0,
         hwnd, (HMENU)(INT_PTR)IDC_CLOSE, GetModuleHandle(NULL), NULL);
 
@@ -607,6 +618,13 @@ static LRESULT OnNotify(DlgData* dd, NMHDR* nm, LPARAM lParam) {
         return 0;
     }
     if (nm->idFrom == IDC_LISTVIEW) {
+        // Free the heap path attached in PopulateListView. Fires per item on
+        // DeleteAllItems and when the control is destroyed.
+        if (nm->code == LVN_DELETEITEM) {
+            NMLISTVIEW* nlv = (NMLISTVIEW*)lParam;
+            delete (std::wstring*)nlv->lParam;
+            return 0;
+        }
         if (nm->code == LVN_KEYDOWN) {
             NMLVKEYDOWN* kd = (NMLVKEYDOWN*)lParam;
             if (kd->wVKey == VK_DELETE && dd) {
@@ -689,45 +707,67 @@ void Show(HWND hwndParent) {
     icex.dwICC = ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES | ICC_BAR_CLASSES;
     InitCommonControlsEx(&icex);
 
+    // Register both classes with the DLL's module handle — their WndProcs live
+    // in this DLL, so the classes must be torn down before it can unload.
+    // fRegistered* is FALSE when the class already exists (a second dialog is
+    // open); only a class we registered ourselves may be unregistered later,
+    // never one out from under a concurrent dialog.
     WNDCLASSW wc = {};
     wc.lpfnWndProc = DlgWndProc;
-    wc.hInstance = GetModuleHandle(NULL);
+    wc.hInstance = g_hModule;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = WND_CLASS;
-    RegisterClassW(&wc);
+    BOOL fRegistered = RegisterClassW(&wc);
+    if (!fRegistered && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return;
 
     WNDCLASSW wcSplit = {};
     wcSplit.lpfnWndProc = SplitterWndProc;
-    wcSplit.hInstance = GetModuleHandle(NULL);
+    wcSplit.hInstance = g_hModule;
     wcSplit.hCursor = LoadCursor(NULL, IDC_SIZENS);
     wcSplit.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wcSplit.lpszClassName = SPLITTER_CLASS;
-    RegisterClassW(&wcSplit);
+    BOOL fRegisteredSplit = RegisterClassW(&wcSplit);
+    if (!fRegisteredSplit && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        if (fRegistered) UnregisterClassW(WND_CLASS, g_hModule);
+        return;
+    }
 
     DlgData dd = {};
     dd.splitRatioPct = (int)RegReadDword(L"SplitRatio", 60);
     if (dd.splitRatioPct < 10) dd.splitRatioPct = 10;
     if (dd.splitRatioPct > 90) dd.splitRatioPct = 90;
 
-    // Load saved window size or use defaults
+    // Load saved window size, clamped to sane minimums and the work area so a
+    // stale value from a since-removed larger monitor can't place the window
+    // (partly) off-screen.
     int ww = (int)RegReadDword(L"DialogWidth", 620);
     int wh = (int)RegReadDword(L"DialogHeight", 420);
+    if (ww < MIN_WIDTH)  ww = MIN_WIDTH;
+    if (wh < MIN_HEIGHT) wh = MIN_HEIGHT;
 
-    // Center on screen
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
-    int x = (sw - ww) / 2;
-    int y = (sh - wh) / 2;
+    RECT rcWork = { 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+    int workW = rcWork.right - rcWork.left;
+    int workH = rcWork.bottom - rcWork.top;
+    if (ww > workW) ww = workW;
+    if (wh > workH) wh = workH;
+    int x = rcWork.left + (workW - ww) / 2;
+    int y = rcWork.top + (workH - wh) / 2;
 
     HWND hwnd = CreateWindowExW(
         0,
         WND_CLASS, GetStrings().DlgBasketTitle,
         (WS_OVERLAPPEDWINDOW & ~(WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_CLIPCHILDREN,
         x, y, ww, wh,
-        hwndParent, NULL, GetModuleHandle(NULL), &dd);
+        hwndParent, NULL, g_hModule, &dd);
 
-    if (!hwnd) return;
+    if (!hwnd) {
+        if (fRegistered)      UnregisterClassW(WND_CLASS, g_hModule);
+        if (fRegisteredSplit) UnregisterClassW(SPLITTER_CLASS, g_hModule);
+        return;
+    }
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
@@ -741,8 +781,8 @@ void Show(HWND hwndParent) {
         }
     }
 
-    UnregisterClassW(WND_CLASS, GetModuleHandle(NULL));
-    UnregisterClassW(SPLITTER_CLASS, GetModuleHandle(NULL));
+    if (fRegistered)      UnregisterClassW(WND_CLASS, g_hModule);
+    if (fRegisteredSplit) UnregisterClassW(SPLITTER_CLASS, g_hModule);
 }
 
 } // namespace BasketDialog

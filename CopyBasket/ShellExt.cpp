@@ -86,13 +86,17 @@ STDMETHODIMP_(ULONG) CShellExt::Release() {
 // HDROP and the IShellItemArray code paths in Initialize.
 //---------------------------------------------------------------------------
 void CShellExt::ResolveClickTarget(LPCWSTR firstPath, bool isFolder, bool isSingleItem) {
+    // lstrcpynW (not lstrcpyW) bounds the copy to MAX_PATH and always NUL-
+    // terminates. The IShellItemArray fallback path can hand us a
+    // SIGDN_FILESYSPATH string longer than MAX_PATH (long-path-aware folders),
+    // which an unbounded copy would overflow past m_szFolder into m_hMenuBitmap.
     if (m_szFolder[0] == L'\0') {
-        lstrcpyW(m_szFolder, firstPath);
+        lstrcpynW(m_szFolder, firstPath, MAX_PATH);
         WCHAR* pSlash = wcsrchr(m_szFolder, L'\\');
         if (pSlash) *pSlash = L'\0';
     }
     if (isSingleItem && isFolder) {
-        lstrcpyW(m_szFolder, firstPath);
+        lstrcpynW(m_szFolder, firstPath, MAX_PATH);
     }
 }
 
@@ -181,6 +185,14 @@ STDMETHODIMP CShellExt::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmd
     HMENU hSubMenu = CreatePopupMenu();
     if (!hSubMenu)
         return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
+
+    // Honor the command-ID budget the shell grants us. If the band is too
+    // narrow for all our verbs, add nothing rather than assign IDs past
+    // idCmdLast (which would collide with other handlers' commands).
+    if (idCmdLast - idCmdFirst + 1 < CMD_COUNT) {
+        DestroyMenu(hSubMenu);
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
+    }
 
     const StringTable& S = GetStrings();
     int basketCount = BasketStore::GetFileCount();
@@ -317,9 +329,16 @@ STDMETHODIMP CShellExt::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi) {
                 HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, cb);
                 if (hMem) {
                     WCHAR* p = (WCHAR*)GlobalLock(hMem);
-                    memcpy(p, text.c_str(), cb);
-                    GlobalUnlock(hMem);
-                    SetClipboardData(CF_UNICODETEXT, hMem);
+                    if (p) {
+                        memcpy(p, text.c_str(), cb);
+                        GlobalUnlock(hMem);
+                        // On success the clipboard owns hMem; on failure we
+                        // still own it and must free it to avoid a leak.
+                        if (!SetClipboardData(CF_UNICODETEXT, hMem))
+                            GlobalFree(hMem);
+                    } else {
+                        GlobalFree(hMem);
+                    }
                 }
                 CloseClipboard();
             }

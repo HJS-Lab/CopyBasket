@@ -112,7 +112,25 @@ public:
 struct ExpectedFile {
     std::wstring sourcePath;
     std::wstring destPath;
+    bool destPreexisted;        // did destPath already exist before the op?
+    FILETIME destPreWriteTime;  // its last-write time if it preexisted
 };
+
+// Snapshot the destination's pre-op state so the COPY post-check can tell a
+// real copy/overwrite from a conflict-dialog "skip" (dest left untouched).
+static ExpectedFile MakeExpected(const std::wstring& src, const std::wstring& dst) {
+    ExpectedFile ef;
+    ef.sourcePath = src;
+    ef.destPath = dst;
+    ef.destPreexisted = false;
+    ef.destPreWriteTime = FILETIME{};
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (GetFileAttributesExW(dst.c_str(), GetFileExInfoStandard, &fad)) {
+        ef.destPreexisted = true;
+        ef.destPreWriteTime = fad.ftLastWriteTime;
+    }
+    return ef;
+}
 
 static void EnumerateFilesRecursive(const std::wstring& srcDir, const std::wstring& destDir,
                                     std::vector<ExpectedFile>& out) {
@@ -125,10 +143,14 @@ static void EnumerateFilesRecursive(const std::wstring& srcDir, const std::wstri
         if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
         std::wstring srcFull  = srcDir  + L"\\" + fd.cFileName;
         std::wstring destFull = destDir + L"\\" + fd.cFileName;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+        // Recurse into real directories only. Reparse points (junctions /
+        // symlinks) are treated as leaves: following them can loop forever on
+        // cyclic junctions or explode into a whole-volume walk → bad_alloc.
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            !(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
             EnumerateFilesRecursive(srcFull, destFull, out);
         } else {
-            out.push_back({ srcFull, destFull });
+            out.push_back(MakeExpected(srcFull, destFull));
         }
     } while (FindNextFileW(hFind, &fd));
 
@@ -146,10 +168,10 @@ static std::vector<ExpectedFile> BuildExpectedFiles(const std::vector<std::wstri
         std::wstring name = BasketStore::ExtractFileName(path);
         std::wstring itemDest = destFolder + L"\\" + name;
 
-        if (attr & FILE_ATTRIBUTE_DIRECTORY) {
+        if ((attr & FILE_ATTRIBUTE_DIRECTORY) && !(attr & FILE_ATTRIBUTE_REPARSE_POINT)) {
             EnumerateFilesRecursive(path, itemDest, expected);
         } else {
-            expected.push_back({ path, itemDest });
+            expected.push_back(MakeExpected(path, itemDest));
         }
     }
     return expected;
@@ -299,17 +321,27 @@ struct PostCheckResult {
 static PostCheckResult ClassifyOutcome(const std::vector<ExpectedFile>& expected, UINT wFunc) {
     PostCheckResult r;
     for (const auto& ef : expected) {
-        DWORD srcAttr  = GetFileAttributesW(ef.sourcePath.c_str());
-        DWORD destAttr = GetFileAttributesW(ef.destPath.c_str());
-        bool srcExists  = (srcAttr  != INVALID_FILE_ATTRIBUTES);
-        bool destExists = (destAttr != INVALID_FILE_ATTRIBUTES);
+        bool srcExists = (GetFileAttributesW(ef.sourcePath.c_str()) != INVALID_FILE_ATTRIBUTES);
+
+        WIN32_FILE_ATTRIBUTE_DATA destFad;
+        bool destExists = GetFileAttributesExW(ef.destPath.c_str(),
+                                               GetFileExInfoStandard, &destFad) != 0;
 
         if (wFunc == FO_MOVE) {
             if (!srcExists && destExists) r.actuallySucceeded.push_back(ef.sourcePath);
             else                          r.notProcessed.push_back(ef.sourcePath);
         } else { // FO_COPY
-            if (destExists) r.actuallySucceeded.push_back(ef.sourcePath);
-            else            r.notProcessed.push_back(ef.sourcePath);
+            // A destination that merely *exists* is not proof of success: it may
+            // have pre-dated the operation and been skipped in the conflict
+            // dialog. Count success only when the dest is newly created, or an
+            // existing dest was actually overwritten (last-write time moved).
+            bool copied;
+            if (!destExists)               copied = false;
+            else if (!ef.destPreexisted)   copied = true;
+            else copied = (CompareFileTime(&destFad.ftLastWriteTime, &ef.destPreWriteTime) != 0);
+
+            if (copied) r.actuallySucceeded.push_back(ef.sourcePath);
+            else        r.notProcessed.push_back(ef.sourcePath);
         }
     }
     return r;
@@ -450,12 +482,26 @@ static unsigned __stdcall FileOpThreadProc(void* pArg) {
 
     CoUninitialize();
     delete params;
+
+    // Pin this module for the rest of the thread. Dropping g_cRef to 0 below
+    // lets DllCanUnloadNow return S_OK; without a pin, a CoFreeUnusedLibraries
+    // firing in the window between the decrement and thread exit could unmap
+    // this DLL while this very epilog still runs → access violation in Explorer.
+    HMODULE hSelf = NULL;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                       (LPCWSTR)&FileOpThreadProc, &hSelf);
+
     // Release the in-flight slot before the DLL refcount drop so a follow-up
     // operation triggered from the abort dialog (closed inside Execute...) is
     // never falsely rejected as "busy".
     InterlockedExchange(&g_fileOpInFlight, 0);
     InterlockedDecrement(&g_cRef);
-    return 0;
+
+    // Drop the pin and exit atomically without returning into (possibly
+    // unmapped) DLL code. Trade-off: bypasses the CRT's _endthreadex teardown,
+    // leaking a few bytes of CRT TLS per op — acceptable vs. an unmap crash.
+    if (hSelf) FreeLibraryAndExitThread(hSelf, 0);
+    return 0;  // reached only if the (near-infallible) module pin failed
 }
 
 static void LaunchFileOp(HWND hwndOwner, UINT wFunc, const std::vector<std::wstring>& files,

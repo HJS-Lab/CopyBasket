@@ -14,13 +14,23 @@ static const wchar_t* const BASKET_MUTEX_NAME = L"Local\\CopyBasket.basket.v1";
 
 class BasketLock {
     HANDLE m_h;
+    bool m_owned;
 public:
-    BasketLock() : m_h(CreateMutexW(NULL, FALSE, BASKET_MUTEX_NAME)) {
-        if (m_h) WaitForSingleObject(m_h, INFINITE);
+    BasketLock() : m_h(CreateMutexW(NULL, FALSE, BASKET_MUTEX_NAME)), m_owned(false) {
+        if (m_h) {
+            DWORD w = WaitForSingleObject(m_h, INFINITE);
+            // WAIT_OBJECT_0 and WAIT_ABANDONED both leave us owning the mutex
+            // (ABANDONED = a prior holder crashed; the basket file is still
+            // consistent because every write is an atomic temp+rename). Only
+            // then may the destructor release it. If CreateMutexW itself failed
+            // (m_h == NULL, e.g. resource exhaustion) we proceed lock-less —
+            // best effort; the atomic write still rules out file corruption.
+            m_owned = (w == WAIT_OBJECT_0 || w == WAIT_ABANDONED);
+        }
     }
     ~BasketLock() {
         if (m_h) {
-            ReleaseMutex(m_h);
+            if (m_owned) ReleaseMutex(m_h);
             CloseHandle(m_h);
         }
     }
@@ -133,6 +143,9 @@ static bool WriteBasketUnlocked(const std::vector<std::wstring>& files) {
         ok = writeAll(line.c_str(), (DWORD)(line.size() * sizeof(WCHAR)));
     }
 
+    // Flush the temp file's data before the metadata-only rename commits, so a
+    // power/system crash can't leave basket.txt pointing at unwritten blocks.
+    if (ok) FlushFileBuffers(hFile);
     CloseHandle(hFile);
 
     if (!ok) {

@@ -54,6 +54,10 @@ extern "C" int APIENTRY
 DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved) {
     if (dwReason == DLL_PROCESS_ATTACH) {
         g_hModule = hInstance;
+        // No per-thread work in DllMain and no static TLS — opt out of
+        // DLL_THREAD_ATTACH/DETACH so Explorer's constant thread churn does
+        // not serialize through here under the loader lock.
+        DisableThreadLibraryCalls(hInstance);
     }
     return 1;
 }
@@ -72,7 +76,12 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppvOut) {
     *ppvOut = NULL;
     if (IsEqualIID(rclsid, CLSID_CopyBasket)) {
         CShellExtClassFactory* pcf = new CShellExtClassFactory;
-        return pcf->QueryInterface(riid, ppvOut);
+        HRESULT hr = pcf->QueryInterface(riid, ppvOut);
+        // On QI failure no AddRef happened, so m_cRef stays 0 and the object
+        // would leak (and its ctor's g_cRef increment would pin the DLL
+        // forever). Release the construction reference explicitly.
+        if (FAILED(hr)) delete pcf;
+        return hr;
     }
     return CLASS_E_CLASSNOTAVAILABLE;
 }

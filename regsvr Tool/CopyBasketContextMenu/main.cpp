@@ -57,6 +57,13 @@ static BOOL IsCopyBasketFullyRegistered()
 }
 
 // Delete CopyBasket user settings (registry + %APPDATA%\CopyBasket folder)
+// Note: this tool runs elevated (requireAdministrator manifest), so HKCU and
+// CSIDL_APPDATA resolve to the *elevated* account's profile. On a single-admin
+// machine that is the user's own profile. Under over-the-shoulder elevation by
+// a different admin, it targets that admin's profile — the interactive user's
+// settings would remain. Resolving the interactive user's profile from an
+// elevated process is not reliably possible without their token, so this is a
+// documented limitation for the multi-account case.
 static BOOL DeleteUserSettings()
 {
     BOOL success = RegDeleteKeyW(HKEY_CURRENT_USER, SETTINGS_KEY) == ERROR_SUCCESS;
@@ -102,6 +109,17 @@ static DWORD RunRegsvr32(LPCWSTR dllPath, BOOL activate, BOOL* outLaunched)
 {
     *outLaunched = FALSE;
 
+    // Resolve regsvr32 by its full System32 path, never by bare name.
+    // ShellExecute would otherwise search a list that includes this EXE's own
+    // (user-writable, portable) directory first — an attacker-planted
+    // regsvr32.exe there would run with this elevated tool's privileges.
+    wchar_t regsvrPath[MAX_PATH];
+    UINT sysLen = GetSystemDirectoryW(regsvrPath, ARRAYSIZE(regsvrPath));
+    if (sysLen == 0 || sysLen >= ARRAYSIZE(regsvrPath))
+        return ERROR_GEN_FAILURE;
+    if (FAILED(StringCchCatW(regsvrPath, ARRAYSIZE(regsvrPath), L"\\regsvr32.exe")))
+        return ERROR_BUFFER_OVERFLOW;
+
     // Params: "/u /s \"<dllPath>\"" — worst case ~6 chars overhead
     wchar_t params[MAX_PATH + 32];
     if (FAILED(StringCchPrintfW(params, ARRAYSIZE(params),
@@ -113,7 +131,7 @@ static DWORD RunRegsvr32(LPCWSTR dllPath, BOOL activate, BOOL* outLaunched)
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
     sei.lpVerb = L"open";
-    sei.lpFile = L"regsvr32.exe";
+    sei.lpFile = regsvrPath;
     sei.lpParameters = params;
     sei.nShow = SW_HIDE;
 

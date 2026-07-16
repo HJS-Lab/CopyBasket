@@ -59,11 +59,21 @@ InstallDirRegKey HKLM "Software\${PRODUCT_NAME}" "InstallDir"
 !insertmacro MUI_LANGUAGE "German"
 
 ;--------------------------------
+; Localized messages (must follow MUI_LANGUAGE so the languages exist)
+
+LangString MSG_REG_FAILED ${LANG_ENGLISH} "CopyBasket could not be registered (regsvr32 error code $0).$\nSetup will abort."
+LangString MSG_REG_FAILED ${LANG_GERMAN} "CopyBasket konnte nicht registriert werden (regsvr32-Fehlercode $0).$\nDie Installation wird abgebrochen."
+
+;--------------------------------
 ; Installer Initialization
 
 Function .onInit
+  ; Force the 64-bit Program Files default on x64 — but only when INSTDIR is
+  ; still the compiled-in 32-bit default, so a custom path restored by
+  ; InstallDirRegKey from a prior install is preserved.
   ${If} ${RunningX64}
-    StrCpy $INSTDIR "$PROGRAMFILES64\CopyBasket"
+    StrCmp $INSTDIR "$PROGRAMFILES\CopyBasket" 0 +2
+      StrCpy $INSTDIR "$PROGRAMFILES64\CopyBasket"
   ${EndIf}
 FunctionEnd
 
@@ -79,27 +89,39 @@ Section "CopyBasket" SecCore
   IfFileExists "$INSTDIR\CopyBasket.dll" 0 skip_unreg
     ${If} ${RunningX64}
       ${DisableX64FSRedirection}
-      ExecWait 'regsvr32 /u /s "$INSTDIR\CopyBasket.dll"'
+      ExecWait '"$SYSDIR\regsvr32.exe" /u /s "$INSTDIR\CopyBasket.dll"'
       ${EnableX64FSRedirection}
     ${Else}
-      ExecWait 'regsvr32 /u /s "$INSTDIR\CopyBasket.dll"'
+      ExecWait '"$SYSDIR\regsvr32.exe" /u /s "$INSTDIR\CopyBasket.dll"'
     ${EndIf}
   skip_unreg:
 
-  ; Install architecture-appropriate DLL
+  ; Install architecture-appropriate DLL. If a previous CopyBasket.dll is still
+  ; loaded by a running Explorer the file is locked; renaming it aside works on
+  ; a loaded module and frees the name for the new file. The stale copy is
+  ; deleted now if possible, otherwise on the next reboot (/REBOOTOK).
+  Delete /REBOOTOK "$INSTDIR\CopyBasket.dll.old"
+  Rename /REBOOTOK "$INSTDIR\CopyBasket.dll" "$INSTDIR\CopyBasket.dll.old"
+  ClearErrors
   ${If} ${RunningX64}
     File /oname=CopyBasket.dll "..\x64\Release\CopyBasket.dll"
   ${Else}
     File /oname=CopyBasket.dll "..\Release\CopyBasket.dll"
   ${EndIf}
+  Delete /REBOOTOK "$INSTDIR\CopyBasket.dll.old"
 
-  ; Register shell extension
+  ; Register shell extension and verify it succeeded — a silent failure would
+  ; leave the user with no context menu and no indication why.
   ${If} ${RunningX64}
     ${DisableX64FSRedirection}
-    ExecWait 'regsvr32 /s "$INSTDIR\CopyBasket.dll"'
+    ExecWait '"$SYSDIR\regsvr32.exe" /s "$INSTDIR\CopyBasket.dll"' $0
     ${EnableX64FSRedirection}
   ${Else}
-    ExecWait 'regsvr32 /s "$INSTDIR\CopyBasket.dll"'
+    ExecWait '"$SYSDIR\regsvr32.exe" /s "$INSTDIR\CopyBasket.dll"' $0
+  ${EndIf}
+  ${If} $0 <> 0
+    MessageBox MB_OK|MB_ICONSTOP "$(MSG_REG_FAILED)"
+    Abort
   ${EndIf}
 
   ; Notify shell of changes
@@ -140,21 +162,27 @@ Section "Uninstall"
   ; Unregister shell extension
   ${If} ${RunningX64}
     ${DisableX64FSRedirection}
-    ExecWait 'regsvr32 /u /s "$INSTDIR\CopyBasket.dll"'
+    ExecWait '"$SYSDIR\regsvr32.exe" /u /s "$INSTDIR\CopyBasket.dll"'
     ${EnableX64FSRedirection}
   ${Else}
-    ExecWait 'regsvr32 /u /s "$INSTDIR\CopyBasket.dll"'
+    ExecWait '"$SYSDIR\regsvr32.exe" /u /s "$INSTDIR\CopyBasket.dll"'
   ${EndIf}
 
   ; Notify shell of changes
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
 
-  ; Remove files
-  Delete "$INSTDIR\CopyBasket.dll"
+  ; Remove files. /REBOOTOK: if the DLL is still loaded by a running Explorer
+  ; it's locked; schedule its removal for the next reboot instead of failing.
+  Delete /REBOOTOK "$INSTDIR\CopyBasket.dll"
+  Delete /REBOOTOK "$INSTDIR\CopyBasket.dll.old"
   Delete "$INSTDIR\basket.ico"
   Delete "$INSTDIR\Uninstall.exe"
 
-  ; Remove user data (%APPDATA%\CopyBasket)
+  ; Remove user data of the account running this (elevated) uninstaller. On a
+  ; single-admin machine that's the user's own profile; under over-the-shoulder
+  ; elevation by a different admin it targets that admin's profile, so the real
+  ; user's data may remain. A correct per-user cleanup isn't possible from an
+  ; elevated context without the interactive user's token — accepted trade-off.
   RMDir /r "$APPDATA\CopyBasket"
 
   ; Remove registry keys

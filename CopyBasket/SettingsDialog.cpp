@@ -10,6 +10,8 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
 
+extern HINSTANCE g_hModule;
+
 namespace SettingsDialog {
 
 static const WCHAR* WND_CLASS = L"CopyBasketSettings";
@@ -215,11 +217,16 @@ void Show(HWND hwndParent) {
 
     WNDCLASSW wc = {};
     wc.lpfnWndProc = DlgWndProc;
-    wc.hInstance = GetModuleHandle(NULL);
+    wc.hInstance = g_hModule;  // WndProc lives in this DLL — bind the class to it
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = WND_CLASS;
-    RegisterClassW(&wc);
+    // fRegistered is FALSE if the class already exists (another dialog open) —
+    // only unregister a class we actually registered, never one out from under
+    // a concurrent dialog.
+    BOOL fRegistered = RegisterClassW(&wc);
+    if (!fRegistered && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return;
 
     DlgData dd = {};
     dd.initialSel = GetCurrentLangIndex();
@@ -237,9 +244,12 @@ void Show(HWND hwndParent) {
         WND_CLASS, S.SettingsTitle,
         WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
         x, y, ww, wh,
-        hwndParent, NULL, GetModuleHandle(NULL), &dd);
+        hwndParent, NULL, g_hModule, &dd);
 
-    if (!hwnd) return;
+    if (!hwnd) {
+        if (fRegistered) UnregisterClassW(WND_CLASS, g_hModule);
+        return;
+    }
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
@@ -259,7 +269,7 @@ void Show(HWND hwndParent) {
         SetForegroundWindow(hwndParent);
     }
 
-    UnregisterClassW(WND_CLASS, GetModuleHandle(NULL));
+    if (fRegistered) UnregisterClassW(WND_CLASS, g_hModule);
 }
 
 } // namespace SettingsDialog
