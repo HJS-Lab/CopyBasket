@@ -65,6 +65,35 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.7.0
+  - Security & reliability hardening from a full code review (no feature
+    changes). Highlights:
+  - Fixed a buffer overflow in ResolveClickTarget: a navigation-pane path
+    longer than MAX_PATH could overflow a fixed buffer inside explorer.exe
+    (unbounded lstrcpyW -> bounded lstrcpynW)
+  - Fixed an infinite loop / memory blow-up in the file-op pre-scan when a
+    copied/moved folder contained a junction (cyclic reparse points are now
+    treated as leaves, not traversed)
+  - Fixed a DLL-unload race at the end of the background file-op thread
+    (module pinned + FreeLibraryAndExitThread)
+  - Dialog window classes are now bound to the DLL module and cleaned up on
+    all paths (no dangling WndProc after unload)
+  - Remove-from-basket now keeps full paths per item and removes exactly the
+    selected entries atomically — fixes truncation of paths > 259 chars and
+    a lost-update race against a concurrent add
+  - Copy post-check no longer reports a conflict-dialog "skip" as success
+    (destination timestamp is compared)
+  - regsvr32 is now invoked by full System32 path in the installer and
+    CB-CMT (prevents binary-planting with admin rights)
+  - Installer checks the regsvr32 exit code, handles updating a DLL still
+    loaded in Explorer (rename + reboot-delete), and keeps a custom install
+    directory on update
+  - CI hardening: actions pinned to commit SHAs, tag/Version.h consistency
+    check, safer tag-name handling
+  - Minor: clipboard copy-path guarded, idCmdLast budget respected, basket
+    write flushed before rename, keyboard tab-navigation, window clamped to
+    the work area
+
 v1.6.0
   - Concurrent file-op guard. A second right-click on "Copy/Move basket
     here" or "Copy/Move to..." while an operation was still running used

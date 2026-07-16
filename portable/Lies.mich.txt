@@ -70,6 +70,36 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.7.0
+  - Härtung von Sicherheit & Stabilität aus einem vollständigen Code-Review
+    (keine Funktionsänderungen). Wichtigste Punkte:
+  - Buffer-Overflow in ResolveClickTarget behoben: ein Pfad aus dem
+    Navigationsbereich länger als MAX_PATH konnte einen festen Puffer
+    innerhalb von explorer.exe überschreiben (lstrcpyW -> lstrcpynW)
+  - Endlosschleife / Speicher-Explosion im Datei-Pre-Scan behoben, wenn ein
+    kopierter/verschobener Ordner eine Junction enthielt (zyklische Reparse
+    Points werden jetzt als Blätter behandelt, nicht traversiert)
+  - Unload-Race am Ende des Hintergrund-Datei-Threads behoben (Modul gepinnt
+    + FreeLibraryAndExitThread)
+  - Fenster-Klassen der Dialoge sind jetzt an das DLL-Modul gebunden und
+    werden auf allen Pfaden sauber deregistriert (kein dangling WndProc
+    nach Unload)
+  - Entfernen aus dem Korb hält jetzt volle Pfade pro Eintrag und entfernt
+    genau die ausgewählten Einträge atomar — behebt Trunkierung von Pfaden
+    > 259 Zeichen und eine Lost-Update-Race gegen paralleles Hinzufügen
+  - Kopier-Post-Check meldet ein „Überspringen" im Konflikt-Dialog nicht
+    mehr als Erfolg (Ziel-Zeitstempel wird verglichen)
+  - regsvr32 wird jetzt über den vollen System32-Pfad aufgerufen (Installer
+    und CB-CMT) — verhindert Binary-Planting mit Admin-Rechten
+  - Installer prüft den regsvr32-Exit-Code, behandelt das Update einer noch
+    in Explorer geladenen DLL (Rename + Reboot-Löschung) und behält ein
+    eigenes Installationsverzeichnis beim Update
+  - CI-Härtung: Actions auf Commit-SHAs gepinnt, Tag/Version.h-Konsistenz-
+    prüfung, sicherere Behandlung des Tag-Namens
+  - Kleinere Robustheit: Clipboard-Pfad-Kopie abgesichert, idCmdLast-Budget
+    beachtet, Korb-Schreibvorgang flusht vor dem Rename, Tastatur-Navigation,
+    Fenster auf Arbeitsbereich begrenzt
+
 v1.6.0
   - Schutz gegen parallele Datei-Operationen. Ein zweiter Rechtsklick
     auf „Korb hierher kopieren/verschieben" oder „Kopieren/Verschieben
