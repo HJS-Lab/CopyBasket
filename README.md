@@ -143,6 +143,9 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.7.5
+- **Hotfix: "Show basket" opened an empty window** — a v1.7.0 regression. That release bound the dialog window classes to the DLL module, but the splitter child window was still created with the `explorer.exe` instance handle. Application-local window classes are resolved by the (class name, hInstance) pair, so creating the splitter failed, the `DeferWindowPos` chain in `LayoutControls` aborted, and every control stayed at 0×0 — the dialog appeared visibly empty while the basket contents were loaded but invisible. All child windows in `BasketDialog` and `SettingsDialog` are now created with the DLL module handle (required for the app-local splitter class, functionally neutral for the system classes)
+
 ### v1.7.0
 - **Security & reliability hardening** from a full code review — no user-facing feature changes, but several latent crash, data-loss, and privilege-escalation issues are closed:
   - **Buffer overflow fixed** — `ResolveClickTarget` copied the clicked path into a fixed `WCHAR[MAX_PATH]` with unbounded `lstrcpyW`. A navigation-pane folder whose `SIGDN_FILESYSPATH` exceeds `MAX_PATH` (long-path-aware locations) could overflow the buffer into adjacent members inside `explorer.exe`. Now bounded via `lstrcpynW`

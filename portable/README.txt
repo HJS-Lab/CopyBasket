@@ -65,6 +65,16 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.7.5
+  - Hotfix: "Show basket" opened an empty window (v1.7.0 regression).
+    v1.7.0 bound the dialog window classes to the DLL module, but the
+    splitter child window was still created with the explorer.exe instance
+    handle. Window classes are resolved by the (class name, hInstance)
+    pair, so creating the splitter failed and the layout chain aborted ->
+    all controls stayed at zero size while the basket contents were loaded
+    but invisible. All child windows are now created with the DLL module
+    handle
+
 v1.7.0
   - Security & reliability hardening from a full code review (no feature
     changes). Highlights:

@@ -70,6 +70,16 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.7.5
+  - Hotfix: „Korb anzeigen" öffnete ein leeres Fenster (Regression aus
+    v1.7.0). v1.7.0 hat die Fenster-Klassen der Dialoge an das DLL-Modul
+    gebunden, der Splitter wurde aber weiter mit der explorer.exe-Instanz
+    erstellt. Fenster-Klassen werden über das Paar (Klassenname, hInstance)
+    aufgelöst -> die Splitter-Erstellung schlug fehl, die Layout-Kette
+    brach ab und alle Controls blieben bei Größe 0, während der
+    Korb-Inhalt geladen, aber unsichtbar war. Alle Kind-Fenster werden
+    jetzt mit dem DLL-Modul-Handle erstellt
+
 v1.7.0
   - Härtung von Sicherheit & Stabilität aus einem vollständigen Code-Review
     (keine Funktionsänderungen). Wichtigste Punkte:
