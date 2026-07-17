@@ -79,7 +79,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             0, WC_TABCONTROLW, L"",
             WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
             8, 8, 304, 130,
-            hwnd, (HMENU)(INT_PTR)IDC_TAB, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_TAB, g_hModule, NULL);
         SendMessage(dd->hTab, WM_SETFONT, (WPARAM)hFont, TRUE);
         SetWindowTheme(dd->hTab, L"", L"");
 
@@ -95,14 +95,14 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             0, L"STATIC", S.SettingsLanguageLabel,
             WS_CHILD | WS_VISIBLE,
             24, 68, 80, 20,
-            hwnd, (HMENU)(INT_PTR)IDC_LABEL, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_LABEL, g_hModule, NULL);
         SendMessage(dd->hLabel, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         dd->hCombo = CreateWindowExW(
             0, L"COMBOBOX", L"",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
             108, 65, 190, 120,
-            hwnd, (HMENU)(INT_PTR)IDC_COMBO, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_COMBO, g_hModule, NULL);
         SendMessage(dd->hCombo, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)S.SettingsLangNameDe);
         SendMessageW(dd->hCombo, CB_ADDSTRING, 0, (LPARAM)S.SettingsLangNameEn);
@@ -123,7 +123,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             0, L"STATIC", szTitle,
             WS_CHILD | SS_CENTER,
             24, 48, 272, 20,
-            hwnd, (HMENU)(INT_PTR)IDC_ABOUT_TEXT, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_ABOUT_TEXT, g_hModule, NULL);
         SendMessage(dd->hAboutText, WM_SETFONT, (WPARAM)dd->hBoldFont, TRUE);
 
         // About page controls — Website link (centered via LM_GETIDEALSIZE)
@@ -132,7 +132,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             L"<a href=\"https://hjs.page.gd/cb\">hjs.page.gd/cb</a>",
             WS_CHILD,
             0, 72, 272, 20,
-            hwnd, (HMENU)(INT_PTR)IDC_LINK, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_LINK, g_hModule, NULL);
         SendMessage(dd->hLink, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         SIZE idealSize = {};
@@ -147,7 +147,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             S.SettingsCopyright,
             WS_CHILD | SS_CENTER,
             24, 96, 272, 20,
-            hwnd, (HMENU)(INT_PTR)IDC_COPYRIGHT, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_COPYRIGHT, g_hModule, NULL);
         SendMessage(dd->hCopyright, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         // Buttons
@@ -155,14 +155,14 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             0, L"BUTTON", S.SettingsOK,
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             140, 148, 85, 28,
-            hwnd, (HMENU)(INT_PTR)IDC_OK, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_OK, g_hModule, NULL);
         SendMessage(dd->hBtnOK, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         dd->hBtnCancel = CreateWindowExW(
             0, L"BUTTON", S.SettingsCancel,
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             230, 148, 85, 28,
-            hwnd, (HMENU)(INT_PTR)IDC_CANCEL_BTN, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)IDC_CANCEL_BTN, g_hModule, NULL);
         SendMessage(dd->hBtnCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         ShowPage(dd, 0);

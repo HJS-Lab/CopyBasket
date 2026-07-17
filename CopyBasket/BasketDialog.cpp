@@ -444,7 +444,7 @@ static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
         WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS,
         0, 0, 0, 0,
-        hwnd, (HMENU)(INT_PTR)IDC_LISTVIEW, GetModuleHandle(NULL), NULL);
+        hwnd, (HMENU)(INT_PTR)IDC_LISTVIEW, g_hModule, NULL);
     ListView_SetExtendedListViewStyle(dd->hList,
         LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
@@ -480,18 +480,21 @@ static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
     col.iSubItem = 2;
     ListView_InsertColumn(dd->hList, 2, &col);
 
+    // SPLITTER_CLASS is registered under g_hModule (see Show) — the hInstance
+    // passed here must match, or the app-local class lookup fails and the
+    // splitter is never created (which breaks the whole DeferWindowPos layout).
     dd->hSplitter = CreateWindowExW(
         0, SPLITTER_CLASS, L"",
         WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0,
-        hwnd, (HMENU)(INT_PTR)IDC_SPLITTER, GetModuleHandle(NULL), NULL);
+        hwnd, (HMENU)(INT_PTR)IDC_SPLITTER, g_hModule, NULL);
 
     dd->hTree = CreateWindowExW(
         WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP |
         TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS,
         0, 0, 0, 0,
-        hwnd, (HMENU)(INT_PTR)IDC_TREEVIEW, GetModuleHandle(NULL), NULL);
+        hwnd, (HMENU)(INT_PTR)IDC_TREEVIEW, g_hModule, NULL);
 
     if (hSysImgList) {
         TreeView_SetImageList(dd->hTree, hSysImgList, TVSIL_NORMAL);
@@ -501,13 +504,13 @@ static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
         0, L"BUTTON", GetStrings().DlgBtnRemove,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         0, 0, 0, 0,
-        hwnd, (HMENU)(INT_PTR)IDC_REMOVE, GetModuleHandle(NULL), NULL);
+        hwnd, (HMENU)(INT_PTR)IDC_REMOVE, g_hModule, NULL);
 
     dd->hBtnClose = CreateWindowExW(
         0, L"BUTTON", GetStrings().DlgBtnClose,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         0, 0, 0, 0,
-        hwnd, (HMENU)(INT_PTR)IDC_CLOSE, GetModuleHandle(NULL), NULL);
+        hwnd, (HMENU)(INT_PTR)IDC_CLOSE, g_hModule, NULL);
 
     HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     SendMessage(dd->hBtnRemove, WM_SETFONT, (WPARAM)hFont, TRUE);
@@ -517,7 +520,7 @@ static LRESULT OnCreate(HWND hwnd, DlgData* dd) {
         0, STATUSCLASSNAMEW, nullptr,
         WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
         0, 0, 0, 0,
-        hwnd, nullptr, GetModuleHandle(NULL), nullptr);
+        hwnd, nullptr, g_hModule, nullptr);
 
     RefreshFromDisk(dd);
     DragAcceptFiles(hwnd, TRUE);
