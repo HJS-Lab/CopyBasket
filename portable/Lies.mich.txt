@@ -249,13 +249,13 @@ KONTAKT & LINKS
   Autor:      Hans-Joachim Schlingensief (HJS)
   E-Mail:     hajo.schlingensief@gmail.com
   Webseite:   https://hjs.page.gd/cb
-  GitHub:     https://github.com/HJS-cpu/CopyBasket
+  GitHub:     https://github.com/HJS-Lab/CopyBasket
 
   Neueste Version:
-      https://github.com/HJS-cpu/CopyBasket/releases/latest
+      https://github.com/HJS-Lab/CopyBasket/releases/latest
 
   Bug-Tracker:
-      https://github.com/HJS-cpu/CopyBasket/issues
+      https://github.com/HJS-Lab/CopyBasket/issues
 
 --------------------------------------------------------------------------------
 LIZENZ

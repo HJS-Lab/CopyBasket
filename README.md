@@ -1,7 +1,7 @@
 # CopyBasket
 
-[![Build & Release](https://github.com/HJS-cpu/CopyBasket/actions/workflows/release.yml/badge.svg)](https://github.com/HJS-cpu/CopyBasket/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/HJS-cpu/CopyBasket?sort=semver)](https://github.com/HJS-cpu/CopyBasket/releases/latest)
+[![Build & Release](https://github.com/HJS-Lab/CopyBasket/actions/workflows/release.yml/badge.svg)](https://github.com/HJS-Lab/CopyBasket/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/HJS-Lab/CopyBasket?sort=semver)](https://github.com/HJS-Lab/CopyBasket/releases/latest)
 [![Live Website](https://img.shields.io/badge/Live_Website-hjs.page.gd-brightgreen)](https://hjs.page.gd/cb/)
 
 A Windows Explorer shell extension that lets you collect files into a virtual "basket" and then copy or move them all at once to a target directory.
@@ -34,7 +34,7 @@ A Windows Explorer shell extension that lets you collect files into a virtual "b
 
 ## 📥 Download
 
-**[⬇️ Download Latest Release](https://github.com/HJS-cpu/CopyBasket/releases/latest)**
+**[⬇️ Download Latest Release](https://github.com/HJS-Lab/CopyBasket/releases/latest)**
 
 Each release includes:
 - **CopyBasket-X.Y.Z-setup.exe** — Installer (automatic registration, recommended)
@@ -53,13 +53,13 @@ Each release includes:
 
 ### Using the Installer (recommended)
 
-1. Download **`CopyBasket-X.Y.Z-setup.exe`** from the [latest release](https://github.com/HJS-cpu/CopyBasket/releases/latest).
+1. Download **`CopyBasket-X.Y.Z-setup.exe`** from the [latest release](https://github.com/HJS-Lab/CopyBasket/releases/latest).
 2. Run the installer — it will request admin rights, install the correct DLL (x64/x86), and register the shell extension automatically.
 3. To uninstall, use "Programs and Features" in Control Panel.
 
 ### Using CB-CMT (portable)
 
-1. Download **`CopyBasket_vX.Y.Z.zip`** from the [latest release](https://github.com/HJS-cpu/CopyBasket/releases/latest).
+1. Download **`CopyBasket_vX.Y.Z.zip`** from the [latest release](https://github.com/HJS-Lab/CopyBasket/releases/latest).
 2. Extract `CopyBasket_x64.dll` (or `_x86.dll`) and `CB-CMT.exe` to the same folder (e.g. `C:\Program Files\CopyBasket\`).
 3. Run **CB-CMT.exe** — it will prompt for elevation and let you activate or deactivate the context menu with one click.
 
