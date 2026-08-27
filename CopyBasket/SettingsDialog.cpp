@@ -15,6 +15,11 @@ extern HINSTANCE g_hModule;
 namespace SettingsDialog {
 
 static const WCHAR* WND_CLASS = L"CopyBasketSettings";
+
+// Website — Single Source of Truth fuer Anzeige-Text, URL und SysLink-Markup
+#define CB_WEBSITE_TEXT L"hjslab.de/cb"
+#define CB_WEBSITE_URL  L"https://" CB_WEBSITE_TEXT
+#define CB_WEBSITE_LINK L"<a href=\"" CB_WEBSITE_URL L"\">" CB_WEBSITE_TEXT L"</a>"
 static const int IDC_TAB = 2000;
 static const int IDC_COMBO = 2001;
 static const int IDC_OK = 2002;
@@ -129,7 +134,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         // About page controls — Website link (centered via LM_GETIDEALSIZE)
         dd->hLink = CreateWindowExW(
             0, WC_LINK,
-            L"<a href=\"https://hjs.page.gd/cb\">hjs.page.gd/cb</a>",
+            CB_WEBSITE_LINK,
             WS_CHILD,
             0, 72, 272, 20,
             hwnd, (HMENU)(INT_PTR)IDC_LINK, g_hModule, NULL);
@@ -176,7 +181,7 @@ static LRESULT CALLBACK DlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             ShowPage(dd, sel);
         }
         if (pnm->idFrom == IDC_LINK && (pnm->code == NM_CLICK || pnm->code == NM_RETURN)) {
-            ShellExecuteW(NULL, L"open", L"https://hjs.page.gd/cb", NULL, NULL, SW_SHOWNORMAL);
+            ShellExecuteW(NULL, L"open", CB_WEBSITE_URL, NULL, NULL, SW_SHOWNORMAL);
             DestroyWindow(hwnd);
         }
         return 0;

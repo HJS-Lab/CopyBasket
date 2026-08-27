@@ -227,7 +227,7 @@ CONTACT & LINKS
 
   Author:     Hans-Joachim Schlingensief (HJS)
   Email:      hajo.schlingensief@gmail.com
-  Website:    https://hjs.page.gd/cb
+  Website:    https://hjslab.de/cb
   GitHub:     https://github.com/HJS-Lab/CopyBasket
 
   Latest release:
