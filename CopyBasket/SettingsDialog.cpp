@@ -14,12 +14,12 @@ extern HINSTANCE g_hModule;
 
 namespace SettingsDialog {
 
-static const WCHAR* WND_CLASS = L"CopyBasketSettings";
-
 // Website — Single Source of Truth fuer Anzeige-Text, URL und SysLink-Markup
 #define CB_WEBSITE_TEXT L"hjslab.de/cb"
 #define CB_WEBSITE_URL  L"https://" CB_WEBSITE_TEXT
 #define CB_WEBSITE_LINK L"<a href=\"" CB_WEBSITE_URL L"\">" CB_WEBSITE_TEXT L"</a>"
+
+static const WCHAR* WND_CLASS = L"CopyBasketSettings";
 static const int IDC_TAB = 2000;
 static const int IDC_COMBO = 2001;
 static const int IDC_OK = 2002;
