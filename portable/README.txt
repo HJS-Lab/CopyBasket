@@ -65,6 +65,18 @@ FEATURES
 CHANGELOG
 --------------------------------------------------------------------------------
 
+v1.7.6
+  - Fix: "CopyBasket" appeared twice when right-clicking a folder in the
+    navigation pane (the folder tree on the left). Explorer builds a tree
+    node's context menu from two separate menus that both write into the
+    same menu handle: the folder's item menu and the folder's own
+    background menu. Each created its own CopyBasket instance, so the
+    submenu showed up twice - the second copy without "Add to basket" /
+    "Copy path" and, with an empty basket, everything except "Settings"
+    grayed out. The popup now carries a tag; a second instance that finds
+    the tag in the menu adds nothing. The complete variant is the one that
+    stays
+
 v1.7.5
   - Hotfix: "Show basket" opened an empty window (v1.7.0 regression).
     v1.7.0 bound the dialog window classes to the DLL module, but the

@@ -70,6 +70,18 @@ FUNKTIONEN
 VERSIONSHISTORIE
 --------------------------------------------------------------------------------
 
+v1.7.6
+  - Fix: „CopyBasket" erschien beim Rechtsklick auf einen Ordner im
+    Navigationsbereich (linker Ordnerbaum) zweimal. Der Explorer baut das
+    Kontextmenü eines Baum-Knotens aus zwei getrennten Menüs, die beide in
+    dasselbe Menü-Handle schreiben: dem Ordner-Menü und dem
+    Hintergrund-Menü des Ordners selbst. Jedes erzeugte eine eigene
+    CopyBasket-Instanz, daher erschien das Untermenü doppelt - die zweite
+    Kopie ohne „Zum Korb hinzufügen" / „Pfad kopieren" und bei leerem Korb
+    mit allem außer „Einstellungen" ausgegraut. Das Popup trägt jetzt eine
+    Markierung; eine zweite Instanz, die sie im Menü findet, fügt nichts
+    mehr ein. Die vollständige Variante bleibt stehen
+
 v1.7.5
   - Hotfix: „Korb anzeigen" öffnete ein leeres Fenster (Regression aus
     v1.7.0). v1.7.0 hat die Fenster-Klassen der Dialoge an das DLL-Modul

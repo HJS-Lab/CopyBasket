@@ -143,6 +143,9 @@ This project is provided as-is. See the [LICENSE](LICENSE) file for details.
 
 ## 📝 Changelog
 
+### v1.7.6
+- **Fix: "CopyBasket" appeared twice when right-clicking a folder in the navigation pane** — Explorer's folder tree (`INameSpaceTreeControl`) composes a tree node's context menu from two separate default menus that both insert into the same `HMENU`: the item menu (`Directory` registration, initialized with the folder as selection) and the folder's own background menu (`Directory\Background` registration, initialized with `pidlFolder` only). Each menu created its own handler instance, so the submenu showed up twice — the second copy in background mode, without "Add to basket"/"Copy path" and, with an empty basket, everything except "Settings" grayed out. The top-level popup now carries a process-unique tag in its `dwItemData`, and `QueryContextMenu` adds nothing when that tag is already present in the menu. The item instance runs first, so the complete variant is the one that stays. Same technique TortoiseSVN/TortoiseGit use for this Explorer behavior
+
 ### v1.7.5
 - **Hotfix: "Show basket" opened an empty window** — a v1.7.0 regression. That release bound the dialog window classes to the DLL module, but the splitter child window was still created with the `explorer.exe` instance handle. Application-local window classes are resolved by the (class name, hInstance) pair, so creating the splitter failed, the `DeferWindowPos` chain in `LayoutControls` aborted, and every control stayed at 0×0 — the dialog appeared visibly empty while the basket contents were loaded but invisible. All child windows in `BasketDialog` and `SettingsDialog` are now created with the DLL module handle (required for the app-local splitter class, functionally neutral for the system classes)
 
