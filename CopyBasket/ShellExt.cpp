@@ -17,6 +17,34 @@ using Microsoft::WRL::ComPtr;
 extern volatile LONG g_cRef;
 extern HINSTANCE g_hModule;
 
+namespace {
+    // Tag stored in MENUITEMINFO::dwItemData of our top-level "CopyBasket" popup.
+    //
+    // Explorer's navigation pane (INameSpaceTreeControl) builds the context menu
+    // of a folder node from TWO separate default context menus that both insert
+    // into the SAME HMENU: first the item menu (our Directory registration,
+    // initialized with the folder as selection), then the folder's own background
+    // menu (our Directory\Background registration, initialized with pidlFolder
+    // only). Each creates its own CShellExt, so without a guard the popup shows
+    // up twice — the second copy in background mode, i.e. without "Zum Korb
+    // hinzufuegen"/"Pfad kopieren". The tag lets the later instance recognize the
+    // earlier entry and add nothing. g_hModule is unique per process, so it cannot
+    // collide with dwItemData values the shell or other handlers store.
+    ULONG_PTR MenuTag() { return reinterpret_cast<ULONG_PTR>(g_hModule); }
+
+    bool MenuHasOurPopup(HMENU hMenu) {
+        const int count = GetMenuItemCount(hMenu);
+        for (int i = 0; i < count; i++) {
+            MENUITEMINFOW mii = {};
+            mii.cbSize = sizeof(mii);
+            mii.fMask = MIIM_DATA;
+            if (GetMenuItemInfoW(hMenu, i, TRUE, &mii) && mii.dwItemData == MenuTag())
+                return true;
+        }
+        return false;
+    }
+}
+
 //---------------------------------------------------------------------------
 // CShellExt
 //---------------------------------------------------------------------------
@@ -182,6 +210,11 @@ STDMETHODIMP CShellExt::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmd
     if (uFlags & CMF_DEFAULTONLY)
         return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
 
+    // Navigation pane: a sibling instance (the item menu, which runs first)
+    // already inserted our popup into this HMENU — see MenuTag(). Add nothing.
+    if (MenuHasOurPopup(hMenu))
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
+
     HMENU hSubMenu = CreatePopupMenu();
     if (!hSubMenu)
         return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
@@ -247,13 +280,15 @@ STDMETHODIMP CShellExt::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmd
     InsertMenuW(hSubMenu, pos++, MF_STRING | MF_BYPOSITION,
                 idCmdFirst + CMD_SETTINGS, S.MenuSettings);
 
-    // Insert submenu as popup into main context menu (with icon)
+    // Insert submenu as popup into main context menu (with icon). MIIM_DATA
+    // carries MenuTag() so a second instance on the same HMENU can see us.
     MENUITEMINFOW mii = {};
     mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_STRING | MIIM_SUBMENU | MIIM_FTYPE;
+    mii.fMask = MIIM_STRING | MIIM_SUBMENU | MIIM_FTYPE | MIIM_DATA;
     mii.fType = MFT_STRING;
     mii.hSubMenu = hSubMenu;
     mii.dwTypeData = (LPWSTR)L"CopyBasket";
+    mii.dwItemData = MenuTag();
     if (m_hMenuBitmap) {
         mii.fMask |= MIIM_BITMAP;
         mii.hbmpItem = m_hMenuBitmap;
